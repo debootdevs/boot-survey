@@ -1,0 +1,50 @@
+%%% FONT + LAYOUT %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[a4paper,11pt]{article}
+
+
+\usepackage{fouriernc} % set font
+
+
+\usepackage[english]{babel}   % Spacing and hyphenation rules for English.
+\usepackage[T1]{fontenc} % ensures that ANSI carets and mid render correctly and are searchable
+
+\usepackage[margin=15mm]{geometry}
+
+
+\usepackage{calc}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{verbatim}
+
+\usepackage{amsthm}
+
+
+%%% HYPERLINKS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\usepackage[colorlinks=true,
+                linkcolor=teal,
+                citecolor=olive,
+                destlabel=true,
+                bookmarks=true]{hyperref}
+
+% Turns cross-references into links by redefining \refstepcounter
+% Turns citations into links by redefining \bibcite
+% Turns amsmath equation numbers into links by unknown wizardry
+% Provides \href{}{}
+
+\usepackage{bookmark} 
+% patches hyperref to simplify processing (no .out file is generated and 
+% only needs 2 runs).
+
+
+
+%%% MACROS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\input{macro}
+
+\title{Boots as builds --- a DeBoot report}
+\author{Andrew Macpherson and Aata Hokoridani}
+\begin{document}
+\input{document}
+\end{document}
