@@ -234,13 +234,54 @@ How many of these parameters we include in a build specification depends on the 
 
 ## Security
 
-Artur is going to write something here about trust.
+* If we use the "Confidentiality, Integrity, Availability" (CIA) model of security goals:
+  * *Confidentiality* is often not the focus of the boot process. If a boot input contains confidential data, confidentially is generally the responsibility of the subsystem that stores that data; handled, for example, by encryption at rest.
+  * *Integrity* is a major concern of boot processes and much of the boot security infrastructure that exists is designed to address this goal.
+  * *Availability* refers to non-interruptibility of the boot process. Availability of boot inputs --- for example, a boot image fetched from a remote store --- is the responsibility of the fetching and remote storage subsystem.
 
-OK fine, I'll start [mac].
+Threat models such as STRIDE (Spoofing, Tampering, Repudiation, Information disclosure, DOS, Elevation of privilege) tell a similar story.
 
-* In widely used package repositories, a package is accompanied by a checksum/hash and a signature of that checksum (in .asc = ASCII-armored PEM format).
-* The trust of the signing key can be derived from that of the SSL certificate of the domain from which the key is fetched. This could be the domain hosting the repository itself or, perhaps "better," a domain known to be owned by the software author or other trusted authority.
-* The software and hardware used to fetch, verify signatures/checksums, load, and execute the target must also be trusted!
+In this section we focus on *integrity,* the most widely appreciated security goal of a boot flow.
+
+### Integrity/tampering boot security problem
+
+In the boot as computation "graph" model described in this article, a generic security problem runs as follows:
+
+*Context.* A user wants to compute a target $t$ of a build $B$ in several stages $S_1,\ldots,S_n$. At each stage, some inputs are consumed and some intermediate targets $t'$ are computed.
+
+*Adversary.* Between each stage, the (tampering) adversary may modify the value of the intermediate targets $t'$.
+
+*Security goal.* The result of the computation is either the true value of $t$ or $\bot$, indicating failure.
+
+
+
+
+### Some examples
+
+#### U-Boot standard boot
+
+*Context.* An ARM SoC with (trusted) U-Boot firmware is booting a [FIT image](https://u-boot.readthedocs.io/en/latest/usage/fit/source_file_format.html) comprising a kernel, initramfs, device tree blob, and kernel commandline stored on an SD card.
+
+*Adversary.* May modify the contents of the SD card after the user writes it but before booting.
+
+*Security goal.* Either the specified FIT image is booted, or the boot fails and the system halts.
+
+* Resource on this and related problem. https://www.timesys.com/security/securing-u-boot-a-guide-to-mitigating-common-attack-vectors/
+* Tools for securing U-Boot configuration. https://research.nccgroup.com/2020/12/16/depthcharge-v0-2-0/
+
+#### Traditional package management
+
+
+
+*Context.* A user downloads and install a program from a remote repository.
+
+*Adversary.* May modify data in transit and at rest on the remote repository.
+
+*Security goal.* The installed package is the subject of a claim of authorship by an entity possessing an given public key $\mathtt{pk}$.
+
+* In widely used package repositories, a package is accompanied by a checksum/hash and a signature of that checksum (in .asc = ASCII-armored PEM format). 
+* The signature is accompanied by a field indicating the claim associated to the signature in a commonly understood format, for example, the OpenPGP Signature Type byte 0x00 ([RFC 4880](https://www.rfc-editor.org/rfc/rfc4880.html#section-5.2.1)).
+* The trust of the signing key can be derived from that of the root certificate of a TLS certificate chain, for example, those of the DNS domain from which the key is fetched. This could be the domain hosting the repository itself or a domain known to be owned by the software author or other trusted authority.
 
 
 
