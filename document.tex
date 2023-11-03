@@ -1,10 +1,632 @@
 % DOCUMENT BODY
 \maketitle
 
-\begin{abstract}
-  We prove boots are builds and vice versa.
-\end{abstract}
-
 %\tableofcontents
 
+\begin{abstract}
+
+  We consider bootstrapping computers, also known as bare metal provisioning, in a more general context of deployments and dependent builds. We review the state of the art, exhibit a functional programming inspired data model that expresses builds declaratively and specialize it to a boot context, and discuss a trust-oriented security model for provisioning.
+
+\end{abstract}
+
 \section{Introduction}
+
+Booting computers has long been a somewhat neglected corner of IT infrastructure. 
+%
+It is often easy to ignore the sequence of unfamiliar and usually poorly documented ephermeral stages a computer quickly steps through between a power cycle and normal operation. 
+%
+Indeed, one usually expects that a correctly configured system spends only a tiny fraction of its life cycling through these stages.
+
+Despite this, there are a few reasons one may wish to expend attention on the bootloader. 
+%
+One is \emph{security.} 
+%
+In order to evaluate the security of the software supply chain used in a computer system, one must trace the root of trust all the way to the beginning of the boot sequence.
+
+A second, related issue is \emph{reproducibility}, that is, the art of getting servers into the same state regardless of the starting environment. {[}Why do we have to go all the way back to bare metal for
+that?{]} 
+%
+This is related to the idea of \emph{immutable infrastructure},
+otherwise known as the
+\href{https://martinfowler.com/bliki/PhoenixServer.html}{phoenix server}
+model. In a HA cluster with at least two physical nodes, this power
+cycle \(\rightarrow\) bare metal redeployment can be achieved with zero
+downtime. See also ``reproducible builds''
+(https://hal.science/hal-03196519/, https://reproducible-builds.org).
+
+We think the bootloader is overdue a modern theoretical treatment. 
+%
+In this article we address the question:
+\begin{quote}
+  What type of thing is a boot sequence?
+\end{quote}
+%
+An answer to this question empowers us to draw analogies with other types of computation and make more precise and interpretable security assertions.
+%
+A well-defined data model for defining boot sequences can have a number of benefits:
+
+\begin{itemize}
+\tightlist
+\item
+  Accessibility. A clear, up-to-date description language means more
+  users understanding and taking control of their own boot sequences.
+\item
+  Security. A serialized boot definition can be used as a \emph{software bill of materials} used as the subject of security claims about a deployment.
+\item
+  Extensibility. The present obscure state of documentation makes it difficult for developers to integrate new technologies such as novel storage backends early in the boot process.
+\end{itemize}
+
+The second question we address in this article is:
+\begin{quote}
+  How can boots be trusted?
+\end{quote}
+
+The answers to these questions cannot be divorced from one another.
+%
+In order to make trustworthy claims about boots, we have to be able to clearly state the subject of the claims.
+%
+On the other hand, a formal definition of a boot cannot have much practical significance if users cannot be sure that the value computed by their system matches the definition.
+
+In \S\ref{security} we review some examples
+%
+We discuss elements that would be needed for a formal cybersecurity framework.
+
+
+\subsection{Related work}\label{related-work}
+
+For a thorough engineering overview of the structure of boot processes at the firmware level, see \cite{yao2020building}.
+
+There are many cross-industry initiatives to develop standards associated to the boot process:
+\begin{itemize}
+  \item
+   The \emph{Universal Extensible Firmware Interface} (UEFI) is a set of cross-platform standards for an execution environment presented by platform firmware which early stage boot manager or bootloader software can hook into.\footnote{\url{https://uefi.org/specifications}}
+
+  \item
+    The \emph{Preboot Execution Environment} (PXE, pronounced `pixie') is a component of the UEFI specification that defines a protocol, based on DHCP and TFTP, for negotiating a network boot.
+    %
+    It is the standard way to load the next stage after platform firmware over a network, although some systems also offer boot from a webserver.
+
+  \item
+    The \emph{Extended Bootloader Base Requirements} (EBBR) are a subset of UEFI designed as a specification compatible with U-Boot, the industry standard firmware and bootloader implementation for embedded systems.\footnote{\url{https://arm-software.github.io/ebbr/}}
+
+  \item
+    The \emph{multiboot} specification and its sequel does some work to define the format of OS kernel loaders. 
+    %
+    Unlike the preceding examples, multiboot does not attempt to specify how systems should operate at the platform firmware level --- its scope is limited to starting an OS.
+    %
+    The reference implementation of a multiboot-compliant host is the GRUB boot manager, widely used in booting Linux or BSD on x86 computers (although Linux and BSD are not usually distributed as a multiboot-compliant client!)
+
+  \item
+    The \emph{boot loader specification} project defines disk formats, file formats, and naming conventions for boot loader menu entries.\footnote{\url{https://uapi-group.org/specifications/specs/boot_loader_specification/}} 
+    %
+    BLS-compliant menu entry configurations are intended to be OS-agnostic and can be thought of as a data model for a kernel loader boot stage.
+    %
+    However, boots defined in this format are limited to ones where the boot artifacts are located on local storage, which must be partitioned in one of a few pre-defined layouts. 
+    %
+    Thus \emph{extensibility} cannot be said to be one of the goals of the project.
+
+\end{itemize}
+
+Applications designed for bare-metal provisioning of fleets of devices in data centres must define their own data model for specifying deployments.
+%
+Generally speaking, these systems operate over a network (hence use network-based boot protocols, the major one being PXE) and are opinionated about the structure of boot flow.
+%
+Some examples are OpenStack's \emph{Ironic},\footnote{\url{https://wiki.openstack.org/wiki/Ironic}}, Canonical's \emph{MaaS},\footnote{\url{https://maas.io}}, and Equinix's \emph{Tinkerbell}.\footnote{\url{https://tinkerbell.org/}}
+
+The OpenStack authors have also written on the need for a standardized bare metal provisioning API \cite{openstack2023building}.
+
+The early boot and system initialization standards are accompanied by standards defining data models and serialization formats for hardware devices.
+%
+These models aggregate the addressing systems of various bus types (e.g. PCI) into a single namespace.
+%
+As well as providing essential input data for boot loaders to discover and initialize peripherals, a path-like serialization format is useful for specifying the location of boot images and configuration in boot definitions.
+\begin{itemize}
+  \item
+    The UEFI specification includes a systematic and quite general language of \emph{devpaths} for defining \emph{locations} for sourcing images.\footnote{\url{https://uefi.org/specs/UEFI/2.10/10\_Protocols\_Device\_Path\_Protocol.html}}
+
+    The \emph{Advanced Configuration and Power Interface} (ACPI), also maintained by the UEFI Forum. Generally something employed at the OS level but which is available to UEFI.
+    
+  \item
+    Devicetree.\footnote{\url{https://www.devicetree.org/}}
+\end{itemize}
+
+\hypertarget{boots-as-computations-with-cacheing}{%
+\section{Boots as computations with
+cacheing}\label{boots-as-computations-with-cacheing}}
+
+A boot can be regarded as a set of steps to compute the state of an
+initialized system. In some cases, recomputing the value with updated
+inputs (i.e.~rebooting) can be accelerated using a caching strategy, so
+that a reboot may occur without necessarily going through a full power
+cycle (e.g.~switch-root, \texttt{kexec}).
+
+In this section, we repeatedly make use of an analogy with building
+(i.e.~compiling) software artifacts.
+
+\hypertarget{data-model}{%
+\subsection{Data model}\label{data-model}}
+
+\textbf{Definition.} An \emph{n-ary operation} from types
+\((T_1,\ldots,T_n)\) to type \(T_0\) is defined to be a function
+\(f:\prod_{i=1}^n T_i \rightarrow T_0\). Note that we index the output
+and inputs (in that order) of an \(n\)-ary operation by
+\([n]:=\{0,\ldots,n\}\).
+
+A \emph{task} is an operation \(f\) (of any arity \(n\)) together with a
+labelling \(\mathtt{name}:[n]\rightarrow \mathtt{String}\) of the inputs
+and output by strings and a ``task description,'' which should be an
+expression of the underlying function understandable to the computer
+environment in which this computation will be executed. The label
+\(\mathtt{name}(0)\) of the output of the operation is called the
+\emph{target} of the task.
+
+A \emph{build specification} or simply \emph{build} is a set of tasks.
+Expressed in a Python-like pseudocode, the data schema looks something
+like the following:
+
+\begin{verbatim}
+[
+    (f, name_0, [name_1, ..., name_n]),
+    ...
+]
+\end{verbatim}
+
+In this picture, the task description would be a Python function and the
+labelled source and destination types are denoted by (typed) named
+variables. (This is purely illustrative and is certainly not supposed to
+suggest a bootloader implemented in Python!)
+
+Or a more precisely specced JSON
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\OtherTok{[}
+    \FunctionTok{\{}
+        \DataTypeTok{"target"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"label"}\FunctionTok{:} \StringTok{"name\_0"}\FunctionTok{,} \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"T\_0"}\FunctionTok{\},}
+        \DataTypeTok{"inputs"}\FunctionTok{:} \OtherTok{[}
+            \FunctionTok{\{}\DataTypeTok{"label"}\FunctionTok{:} \StringTok{"name\_1"}\FunctionTok{,} \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"T\_1"}\FunctionTok{\}}\OtherTok{,}
+            \ErrorTok{...}\OtherTok{,}
+            \FunctionTok{\{}\DataTypeTok{"label"}\FunctionTok{:} \StringTok{"name\_n"}\FunctionTok{,} \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"T\_n"}\FunctionTok{\}}\OtherTok{,}
+        \OtherTok{]}\FunctionTok{,}
+        \DataTypeTok{"task"}\FunctionTok{:} \ErrorTok{@td}
+    \FunctionTok{\}}\OtherTok{,}
+    \ErrorTok{...}
+\OtherTok{]}
+\end{Highlighting}
+\end{Shaded}
+
+Here \texttt{@td} should be some task description schema whose details
+we leave completely open.
+
+A build specification is said to be \emph{solved} if each target is the
+output of at most one task. A solved build can be represented as a DAG.
+
+Let \(B\) be a build and \(t\) a target of \(B\), and
+\((i_1,\ldots,i_k)\) a set of labels. A \emph{solution} of
+\((B,t,(i_1,\ldots,i_k))\) is a subset \(S\) of \(B\) such that:
+
+\begin{itemize}
+\tightlist
+\item
+  \(t\) is a \emph{root} of \(S\), that is, it is the unique target that
+  is not also an input.
+\item
+  \(i_1,\ldots,i_k\) are the leaves of \(S\), i.e.~they are the only
+  inputs that are not also targets.
+\item
+  Every target in \(S\) is the output of at most one rule in \(S\).
+\end{itemize}
+
+In other words, a solution of \((B,t,(i_1,\ldots,i_k))\) defines a way
+to compute an element of \(T_t\) given elements of
+\(T_{i_1},\ldots,T_{i_k}\).
+
+\begin{example}[Makefiles as build specifications]
+  We can express the data of a build specification in a Makefile-like syntax as follows:
+
+\begin{verbatim}
+name_0: name_1, ... name_n
+    echo $(f name_1 ... name_n) > name_0
+\end{verbatim}
+
+This can be understood as a genuine Makefile if:
+
+\begin{itemize}
+\tightlist
+\item
+  All the inputs and outputs are ``files;'' that is,
+  \(T_i=\mathtt{File}\) for all \(i\). For the purposes of Make, a
+  \emph{file} can be understood as a tuple
+  \((\mathtt{name},\mathtt{mtime}, \mathtt{data})\).
+\item
+  \texttt{f} is a shell function.
+\item
+  Each label appears as the output of at most one step. That is, no step has multiple `providers'.
+\end{itemize}
+
+  Recipes in real-life Makefiles (and indeed any build system) are often not pure functions, but rather depend implicitly on some system state whose scope varies on a per-target basis. 
+  %
+  If one's goal is reproducibility, efforts should be made to list all inputs as explicit dependencies.
+\end{example}
+
+\begin{example}[Dependency DAGs] 
+  
+  It is quite common to encode collections of dependent computations as a directed acyclic graph (DAG).
+  %
+  If a build has the property that each target appears as the output of at most one rule, then it can be exactly encoded as a DAG with one node for each target and input, where each non-leaf nodes is decorated by the unique rule of which it is a target.
+
+\end{example}
+
+\subsection{Multiple providers}
+
+Unlike DAGs, our data model is flexible enough to describe builds with multiple tasks, each considered as good as any other, with the same target.
+%
+In the language of dependency management, our dependency formulae are allowed to contain logical disjunction as well as conjunction.
+
+Disjunctive dependencies are extremely common in practical deployment scenarios such as RPM or DEB-based package management, where objects or configuration fragments listed as a dependency of a given package may have several provider packages, only one of which need be installed to satisfy the dependency.
+
+Naturally, examples of multiple providers in the boot process are also plentiful:
+
+\begin{itemize}
+\tightlist
+\item
+  The feature \texttt{EFI\_BOOT\_SERVICES} is provided by any
+  UEFI-compliant firmware (for example Tianocore EDK2), but also by any
+  firmware complying with the more stripped-down EBBR specification,
+  such as U-Boot.
+\item
+  HTTP and other network drivers are available in UEFI, GRUB, or a Linux
+  initramfs.
+\item
+  Linux filesystems such as Ext4 and BTRFS each have providers in the
+  form of GRUB and Linux modules, but are not available in UEFI.
+\item
+  An IP address can be provided either by a static configuration option
+  or via DHCP, either of which itself has several providers spread
+  across different boot stages.
+\end{itemize}
+
+
+\subsection{Build stages}
+
+A boot system requires multiple computations that take place at
+different times and in different contexts. For example, a UEFI firmware
+boot into an EFI executable needs to compute the state of an initialized
+system starting from only a ``reset vector.''
+
+Meanwhile, the contents, installation location, and configuration of
+firmware can be computed ahead of time in the context of a fully
+equipped development OS. All that we need to know to compute this is the
+shape of the computation demanded by the boot environment. That is, are
+we starting from the reset vector? From an EBBR firmware? From GRUB?
+
+By expressing the boot-time computation as a higher order function
+parametrized by the inputs to the build-time computation, we can express
+the full computation as a \emph{single} build specification together
+with a labelling of the leaves that partitions them into ``boot-time''
+and ``build-time.''
+
+Tasks: 1. Build kernel. 2. Build initramfs containing desired
+\emph{rootfs drivers}. 3. Install kernel + initramfs to location
+accepted by kernel invoker (GRUB). 4. Build GRUB menu
+(i.e.~\texttt{grub.cfg}). 5. Build and install GRUB image. 6. Build
+initramfs with all drivers required for a given GRUB menu included. 7.
+Build initramfs with all default drivers included.
+
+In the following examples, I use the Pythonic notation and explain the
+typing (for which there are often multiple reasonable approaches) in
+prose.
+
+
+\subsection{Example: loading an EFI application}
+
+We start from the assumption that we want to load and boot into an EFI
+executable file \texttt{BOOTX64.EFI}.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  To jump into this program (i.e.~compute the state of an initialized
+  system running this program), we need the program binary itself and a
+  firmware library function to parse and load PE executable with EFI
+  headers.
+\item
+  To obtain the library function \texttt{efi\_exec}, we need to resolve
+  the symbol from a loaded firmware implementation providing this
+  feature. Libraries that implement either the UEFI or EBBR
+  specifications provide it.
+\item
+  A UEFI symbol table can be computed by loading it from a UEFI
+  implementation, such as Tianocore's OVMF firmware for virtual
+  machines. It is presumed that this firmware is loaded from a canonical
+  location (e.g.~NVRAM) known to the first stage bootloader, so we do
+  not add further tasks to source this.
+\item
+  The EFI program binary can be computed by fetching it from a storage
+  location. We can treat the system I/O bus as an oracle from which we
+  fetch things by passing an address. For example, within the UEFI
+  abstraction layer, this address could be typed as a
+  \href{https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html}{UEFI
+  Device Path}. (Again, the fetcher will need to resolve symbols for the
+  drivers to resolve these paths --- for example, a VFAT filesystem and
+  mass storage device driver --- but to avoid repetition in this purely
+  illustrative example, we do not make these tasks explicit in the
+  listing below.)
+\item
+  The boot device path is read from the boot menu table in the EFIVARS
+  section of NVRAM. The line number is either the configured default or
+  is entered in an interactive user session.
+\item
+  \texttt{efi-boot-number} is a natural number, denoting the menu entry
+  selected by a user via an interactive console session.
+\end{enumerate}
+
+We could go still further and define providers of \texttt{Console} (e.g.~UART serial or graphical output), but the point has been made.
+
+\begin{verbatim}
+[
+    (apply, Exec(efi.Application), [efi.start, efi.Application]),
+    (apply, efi.Application, [efi.load, boot_devicepath]),
+    (resolve, efi.start, [Interface(efi.BootServices), "StartImage"]),
+    (resolve, efi.load, [Interface(efi.BootServices), "LoadImage"]),
+]
+\end{verbatim}
+Technical details like memory addresses and passing through parent context are omitted.
+
+%The leaves of this build specification are the UEFI DevicePath \texttt{boot-devicepath} and the interface \texttt{Provides(EFI_BOOT_SERVICES)}. 
+%
+If the firmware implementation is considered as a separate input to the EFI variables, the computation can be divided into \emph{build-time} versus \emph{configure-time}, and we could add the following build-time tasks:
+\begin{verbatim}
+[
+    (efi.BootServices, Interface(efi.BootServices), [Interface(UEFI)]),
+    (efi.BootServices, Interface(efi.BootServices), [Interface(EBBR)]),
+    (load_uefi, Interface(UEFI), ["OVMF.fd"]),
+]
+\end{verbatim}
+
+Adding user input via a firmware boot option selection screen:
+\begin{verbatim}
+[
+    (efi.getvar, boot_devicepath, [Interface(efi.RuntimeServices), efivars.1, "BootCurrent"]),
+    (efi.setvar, efivars.1, [Interface(efi.RuntimeServices), efivars.0, "BootCurrent", boot_option]),
+    (efi.get_input, boot_option, [Provides(Console), INPUT]),
+]
+\end{verbatim}
+The \texttt{get\_input} function is a summary of a potentially complex interaction.
+%
+Some details are specified by the \emph{Human Interface Infrastructure} (HII) component of UEFI.\footnote{\url{https://uefi.org/specs/UEFI/2.10/33_Human_Interface_Infrastructure.html}}
+
+
+Note that in this application, some leaf variables (\texttt{efi-bootmenu} and console configuration) can be easily
+reconfigured without reinstalling the firmware image itself. 
+%
+This is called making use of a cached build output.
+%
+An automated build system could use knowledge of the services provided by firmware and available media to automatically select locations to persistently cache intermediate computations such as firmware, kernel loaders, boot images, and configuration.
+
+\hypertarget{example-linux-with-a-kernel-command-line}{%
+\subsection{Example: Linux with a kernel command
+line}\label{example-linux-with-a-kernel-command-line}}
+
+Here's how a typical invocation of the kernel (such as one defines in
+GRUB) might break down.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  To initialize the state, we need a Linux image (let us say a blob
+  \texttt{vmlinuz} in bzImage format) and a kernel commandline. The
+  kernel command line must at least have a \texttt{root=} argument. If
+  an initramfs is used, we also need the underlying data for that as
+  well as the corresponding command line argument; for simplicity, we do
+  not discuss that case. Let us call the executor
+  \texttt{bzImage\_exec}; it is provided, for example, by GRUB.
+\item
+  The input \texttt{vmlinuz} has type \(\mathbb{B}^\star\), while the
+  other leaves \texttt{root} and \texttt{extra\_params} have type
+  \(\mathtt{String}\).
+\item
+  A more careful specification of this boot could restrict the type of
+  \texttt{root} to forms accepted by the kernel at boot without an
+  initramfs, such as a Linux device path (\texttt{/dev/*}) or partition
+  UUID. Similarly, \texttt{extra-params} could be further broken down by
+  specifying optional fields for each parameter the kernel recognises.
+  (Note that the Linux kernel doesn't mind being passed parameters it
+  not recognize: it will simply silently ignore them.)
+\item
+  If the bootloader also has to fetch \texttt{vmlinuz} from a peripheral
+  (i.e.~it is not already assumed to reside in a hardcoded location),
+  then we can add a fetch stage for that too. The type of the input
+  \texttt{kernel-path} should depend on the environment and available
+  drivers for fetching. For example, if the implicit context is GRUB,
+  \texttt{kernel-path} should be typed as a
+  \href{https://www.gnu.org/software/grub/manual/grub/grub.html\#Naming-convention}{GRUB
+  path}.
+\end{enumerate}
+
+\begin{verbatim}
+# Boot without initramfs, fetching vmlinuz
+[
+    ("bzImage_exec", "Exec(Linux)", ["vmlinuz", "cmdline"]),
+    ("join", "cmdline", ["root", "extra-params"]),
+    ("fetch", "vmlinuz", ["kernel-path"])
+]
+\end{verbatim}
+
+The leaves of the build are \texttt{kernel-path}, \texttt{root}, and
+\texttt{extra-params}. These leaves could all be marked as boot-time and
+reduced using input from an interactive user session (the GRUB shell or
+menu editor).
+
+Alternatively, they could themselves be expressed as targets of a GRUB
+menu selection, with the leaves of the larger build being \texttt{USER}
+(boot-time) and the data of a GRUB menu (configure-time). Reducing the
+configure-time parameters yields the GRUB script
+\texttt{\$\{prefix\}/grub.cfg} sourced by GRUB on start. This reduction
+is often computed with a distro-provided shell script like
+\texttt{grub-mkconfig}.
+
+\hypertarget{example-high-level}{%
+\subsection{Example: high-level}\label{example-high-level}}
+
+Multi-stage boot involving GRUB and an initramfs. 
+%
+You need to go to multi-stage because the resources you need to fetch need codecs or drivers not available at the first stage.
+
+Typically, the full computation falls into several stages:
+\begin{enumerate}
+  \item \emph{Build.} Build and install platform firmware and bootloader.
+  \item \emph{Configure.} Build kernel, initramfs containing relevant rootfs drivers, and userspace, and configure kernel loading, including kernel command line.
+  \item \emph{Run.} Capture runtime user interaction and compute system initialization state.
+\end{enumerate}
+
+Example: 1. You want to boot a kernel that lives on a filesystem other
+than FAT. For example, \texttt{ext4} or \texttt{btrfs}. Your target
+\texttt{btrfs} has a disjunctive dependency
+\texttt{grub\ \textbar{}\textbar{}\ linux}. Similarly, the kernel is an
+ELF executable and not an EFI PE; this also has a disjunctive dependency
+\texttt{grub\ \textbar{}\textbar{}\ linux}. 2. You want to boot a kernel
+that lives on an attached storage device whose filesystem may be any of
+a list of supported filesystems. Which one it is is autodetected on
+startup (a dynamic dependency). 3. You want to boot an image comprising
+more than one file; for instance, a kernel and initramfs. The dependency
+is
+\texttt{ipxe\ \textbar{}\textbar{}\ grub\ \textbar{}\textbar{}\ linux}.
+4. You want to fetch an image from a novel tech (Swarm, IPFS,
+Arweave\ldots) that has been developed for a full OS, e.g.~Linux, BSD,
+MacOS, Windows. Your dependency is that OS and an init process that
+launches the client for the novel protocol. 5. You want to capture user
+input interactively. That is, your build has a dynamic dependency. -
+Selection from several hardcoded boot options. Available in UEFI. -
+Selection from several boot options with an interactive editor to modify
+them. Dependency is \texttt{grub}. - Shell with various capabilities.
+Available UEFI, GRUB, Linux+initramfs\ldots{} 6. You want to fetch an
+image from the WAN over HTTP with static network configuration. You need
+network interface drivers, a TCP/IP stack, and HTTP. 7. Same as above
+but with HTTPS. In addition to the above you need TLS and root
+certificates (as trust anchor or with trust derivable from a trust
+anchor). 8. Same as 5. but also verifying a PGP signature. You need PGP
+and the signing pubkey (as trust anchor or with trust derivable from a
+trust anchor). 9. Same as 5. but also verifying a modern signature
+scheme with less widespread support, such as BLS with signature
+aggregation. Dependency is \texttt{bls-verify\ -\textgreater{}\ linux}
+(probably.) 10. Same as 5, 6, or 7, but with autoconf (a dynamic
+dependency). You need
+\texttt{ra\ \textbar{}\textbar{}\ dhcp\ \textbar{}\textbar{}\ dhcpv6.}
+11. Same as 5, 6, or 7, but the image URL is a DNS name rather than an
+IP address. You need \texttt{dns-client}. (If using DHCP, you need a
+DHCP client plugin that registers the DNS server address field.)
+
+\section{Security}
+
+How can we trust boots?
+%
+To approach the question, we must first clarify it.
+\begin{quote}
+  How can we \emph{estimate} and \emph{optimize} the probability that, given a set of assumptions about the environment and the capabilities of an adversary, booting a system puts it into a state with desirable properties?
+\end{quote}
+The `desirable properties' of the booted system state are our \emph{security objectives}; the capabilities of an adversary are the \emph{threat model}.
+
+A practical boot security framework would provide:
+\begin{itemize}
+  \item A boot risk management language. A nomenclature for common boot security objectives, assumptions, and threats.
+  \item Methods for evaluating risk.
+  \item Methods for constrained optimization of risk.
+\end{itemize}
+For our nomenclature we should draw on the language of firmware and boot loader development practitioners \cite{yao2020building} as well as the models associated to the various information security frameworks in use across the industry \cite{taherdoost2022understanding}. 
+%
+Here is a short list to get us started:
+\begin{itemize}
+  \item The classic `CIA triad' of information security, or the extended model \emph{availability, integrity, authentication, confidentiality, and non-repudiation}.
+  \item The STRIDE threat model. Attack trees.
+  \item Secure boot
+  \item TPM. Measurements.
+  \item PKI, WoT.
+\end{itemize}
+
+\paragraph{Outsourcing trust}
+Some types of security objectives can be efficiently verified by client systems on-the-fly.
+%
+For example, the \emph{integrity} of a retrieved boot image can be verified at boot time to high confidence against a known hash.
+
+Other objectives are either infeasible to verify locally --- for example, `an adversary with the ability to run unprivileged software cannot achieve a privilege escalation' --- or are informal in nature and cannot in any sense be verified.
+%
+When we cannot verify, we need to be able to \emph{trust} boot inputs and processes.
+%
+This trust is most often inherited from trust in an individual or organization --- for example, the authors of a software distribution --- that vouches for the good properties of the artefacts.
+%
+The confidence we can derive from these claims then becomes a function of the nature of the claim and of our trust in the authority's reliability in making such claims.
+
+\subsection{Integrity/tampering boot security problem}
+
+In this section we focus on \emph{integrity,} the most widely
+appreciated security goal of a boot flow.
+
+In the boot as computation ``graph'' model described in this article, a
+generic security problem runs as follows:
+
+\emph{Context.} A user wants to compute a target \(t\) of a build \(B\)
+in several stages \(S_1,\ldots,S_n\). At each stage, some inputs are
+consumed and some intermediate targets \(t'\) are computed.
+
+\emph{Adversary.} Between each stage, the (tampering) adversary may
+modify the value of the intermediate targets \(t'\).
+
+\emph{Security goal.} The result of the computation is either the true
+value of \(t\) or \(\bot\), indicating failure.
+
+
+\subsection{Some examples}
+
+\paragraph{U-Boot standard boot}
+
+\emph{Context.} An ARM SoC with (trusted) U-Boot firmware is booting a FIT
+image,\footnote{\url{https://u-boot.readthedocs.io/en/latest/usage/fit/source_file_format.html}} comprising a kernel, initramfs, device tree blob, and kernel
+commandline, which is written by the operator to an SD card.
+
+\emph{Adversary.} May modify the contents of the SD card after the user writes it but before booting.
+
+\emph{Security goal.} Either the specified FIT image is booted, or the boot fails and the system halts.
+
+
+In terms of build specifications, the problem that is being solved here is the integrity of the boot computation given a cache expansion
+\begin{verbatim}
+[
+  (mmc.data, save, [img.data.0, path]),
+  (img.data.1, load, [mmc.data, path])
+]
+\end{verbatim}
+where the adversary may modify the cached value \texttt{mmc.data}, even if it would break the invariant $\mathtt{img.data.0} = \mathtt{img.data.1}$.
+
+For more practical information on this topic, see \cite{timesys2023securing}.
+
+\hypertarget{traditional-package-management}{%
+\paragraph{Traditional package
+management}\label{traditional-package-management}}
+
+\emph{Context.} A user downloads and install a program from a remote
+repository.
+
+\emph{Adversary.} May modify data in transit and at rest on the remote
+repository.
+
+\emph{Security goal.} The installed package is the subject of a claim of
+authorship by an entity possessing an given public key \(\mathtt{pk}\).
+
+\begin{itemize}
+\tightlist
+\item
+  In widely used package repositories, a package is accompanied by a checksum or hash and a signature of that checksum (in ASCII-armored PEM format).
+\item
+  The signature may be accompanied by a field indicating the claim associated to the signature in a commonly understood format, for example, the OpenPGP Signature Type byte 0x00 \cite[\S5.2.1]{rfc4880}.\footnote{\url{https://www.rfc-editor.org/rfc/rfc4880.html\#section-5.2.1}}
+\item
+  The trust of the signing key can be derived from that of the root
+  certificate of a TLS certificate chain, for example, those of the DNS
+  domain from which the key is fetched. This could be the domain hosting
+  the repository itself or a domain known to be owned by the software
+  author or other trusted authority.
+\end{itemize}
+
+\printbibliography

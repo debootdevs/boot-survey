@@ -1,13 +1,7 @@
-## Table of Contents
-
-1. Introduction
-2. Literature review
-3. Boots as builds
-4. Security
 
 **Abstract.** We consider bootstrapping computers, also known as bare metal provisioning, in a more general context of deployments and dependent builds. We review the state of the art, exhibit a Make-inspired data model that expresses builds declaratively and specialize it to a boot context, and introduce a trust-oriented security model for provisioning.
 
-## Introduction
+# Introduction
 
 Booting computers has long been a somewhat neglected corner of IT infrastructure. It is often easy to ignore the sequence of unfamiliar and usually poorly documented environments a computer quickly steps through between a power cycle and normal operation. Indeed, a correctly configured system should spend only a tiny fraction of its life cycling through these stages.
 
@@ -21,7 +15,7 @@ We think the bootloader is overdue a modern theoretical treatment. A well-define
 * Security. #TODO
 * Extensibility. The present obscure state of documentation makes it difficult for developers to integrate new technologies such as novel storage backends early in the boot process.
 
-### Related work
+## Related work
 
 UEFI is a set of cross-platform standards for an execution environment presented by platform firmware which early stage boot manager or bootloader software can hook into. The UEFI specification includes a systematic and quite general language for defining *locations* for sourcing images. (https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html) Insofar as the difficulty of designing a boot often reduces to the difficulty of telling the early boot environment how to locate images, the UEFI devpath language is quite useful for reproducible boots.
 
@@ -38,14 +32,13 @@ In modern data centre operations, it is typical to use a network boot based bare
 The OpenStack authors have also written on the pros and pitfalls of bare metal provisioning.
 https://www.openstack.org/use-cases/bare-metal/how-ironic-delivers-abstraction-and-automation-using-open-source-infrastructure
 
-## Boots as computations with cacheing
+# Boots as computations with cacheing
 
 A boot can be regarded as a set of steps to compute the state of an initialized system. In some cases, recomputing the value with updated inputs (i.e. rebooting) can be accelerated using a caching strategy, so that a reboot may occur without necessarily going through a full power cycle (e.g. switch-root, `kexec`).
 
 In this section, we repeatedly make use of an analogy with building (i.e. compiling) software artifacts.
 
-### Data model
-
+## Data model
 
 **Definition.** An *n-ary operation* from types $(T_1,\ldots,T_n)$ to type $T_0$ is defined to be a function $f:\prod_{i=1}^n T_i \rightarrow T_0$. Note that we index the output and inputs (in that order) of an $n$-ary operation by $[n]:=\{0,\ldots,n\}$.
 
@@ -104,7 +97,7 @@ If one's goal is reproducibility, efforts should be made to make all boot depend
 
 *Example. (Dependency DAGs).* It is quite common to encode collections of dependent computations as a directed acyclic graph (DAG). If a build has the property that each target appears as the output of at most one rule, then it can be exactly encoded as a DAG with one node for each target and input, where each non-leaf nodes is decorated by the unique rule of which it is a target.
 
-### Multiple providers
+## Multiple providers
 
 Unlike DAGs, our data model is flexible enough to describe builds with multiple recipes (each as good as any other) for the same target. In the language of dependency management, our dependency formulae are allowed to contain logical disjunction as well as conjunction. 
 
@@ -117,7 +110,7 @@ Naturally, examples of multiple providers in the boot process are also plentiful
 * Linux filesystems such as Ext4 and BTRFS each have providers in the form of GRUB and Linux modules, but are not available in UEFI.
 * An IP address can be provided either by a static configuration option or via DHCP, either of which itself has several providers spread across different boot stages.
 
-### Build stages
+## Build stages
 
 A boot system requires multiple computations that take place at different times and in different contexts. For example, a UEFI firmware boot into an EFI executable needs to compute the state of an initialized system starting from only a "reset vector." 
 
@@ -137,7 +130,7 @@ Tasks:
 
 In the following examples, I use the Pythonic notation and explain the typing (for which there are often multiple reasonable approaches) in prose.
 
-### Example: low-level
+## Example: low-level
 
 We start from the assumption that we want to load and boot into an EFI executable file `BOOTX64.EFI`.
 
@@ -168,7 +161,7 @@ In practice, it could be used to select and automatically configure a firmware i
 
 Note that in this application, some leaf variables (`efi-bootmenu` and console configuration) can be easily reconfigured without reinstalling the firmware image itself. This is called making use of a cached build output.
 
-### Example: Linux with a kernel command line
+## Example: Linux with a kernel command line
 
 Here's how a typical invocation of the kernel (such as one defines in GRUB) might break down.
 
@@ -190,7 +183,7 @@ The leaves of the build are `kernel-path`, `root`, and `extra-params`. These lea
 
 Alternatively, they could themselves be expressed as targets of a GRUB menu selection, with the leaves of the larger build being `USER` (boot-time) and the data of a GRUB menu (configure-time). Reducing the configure-time parameters yields the GRUB script `${prefix}/grub.cfg` sourced by GRUB on start. This reduction is often computed with a distro-provided shell script like `grub-mkconfig`.
 
-### Example: high-level
+## Example: high-level
 
 Multi-stage boot involving GRUB and an initramfs. You need to go to multi-stage because the resources you need to fetch need codecs/drivers not available at the initial boot stage.
 
@@ -221,7 +214,7 @@ Example:
 10. Same as 5, 6, or 7, but with autoconf (a dynamic dependency). You need `ra || dhcp || dhcpv6.`
 11. Same as 5, 6, or 7, but the image URL is a DNS name rather than an IP address. You need `dns-client`. (If using DHCP, you need a DHCP client plugin that registers the DNS server address field.)
 
-### Example: fetchers
+## Example: fetchers
 
 A common theme in the preceding family of examples is that the choke point is *fetching* an image or configuration from a distant location to a proximal one (e.g. main memory). In full generality, a fetcher has the following inputs:
 
@@ -232,7 +225,7 @@ A common theme in the preceding family of examples is that the choke point is *f
 How many of these parameters we include in a build specification depends on the intended scope of the analysis or configuration. For example, it would be natural to omit the last parameter if the object to be fetched is hosted on an external, curated repository. The second parameter can be omitted if the driver is already an implicit part of the context.
 
 
-## Security
+# Security
 
 * If we use the "Confidentiality, Integrity, Availability" (CIA) model of security goals:
   * *Confidentiality* is often not the focus of the boot process. If a boot input contains confidential data, confidentially is generally the responsibility of the subsystem that stores that data; handled, for example, by encryption at rest.
@@ -243,7 +236,7 @@ Threat models such as STRIDE (Spoofing, Tampering, Repudiation, Information disc
 
 In this section we focus on *integrity,* the most widely appreciated security goal of a boot flow.
 
-### Integrity/tampering boot security problem
+## Integrity/tampering boot security problem
 
 In the boot as computation "graph" model described in this article, a generic security problem runs as follows:
 
@@ -256,9 +249,9 @@ In the boot as computation "graph" model described in this article, a generic se
 
 
 
-### Some examples
+## Some examples
 
-#### U-Boot standard boot
+### U-Boot standard boot
 
 *Context.* An ARM SoC with (trusted) U-Boot firmware is booting a [FIT image](https://u-boot.readthedocs.io/en/latest/usage/fit/source_file_format.html) comprising a kernel, initramfs, device tree blob, and kernel commandline stored on an SD card.
 
@@ -269,7 +262,7 @@ In the boot as computation "graph" model described in this article, a generic se
 * Resource on this and related problem. https://www.timesys.com/security/securing-u-boot-a-guide-to-mitigating-common-attack-vectors/
 * Tools for securing U-Boot configuration. https://research.nccgroup.com/2020/12/16/depthcharge-v0-2-0/
 
-#### Traditional package management
+### Traditional package management
 
 
 
@@ -285,19 +278,19 @@ In the boot as computation "graph" model described in this article, a generic se
 
 
 
-## References
+# References
 
 - A few papers about build systems.
 - OSTree and related projects. "Bootable containers." 
 - Kairos and SENA. 
 - [Security related things]
 
-### Articles
+## Articles
 
 - Secure boot vulnerability. https://arstechnica.com/information-technology/2023/03/unkillable-uefi-malware-bypassing-secure-boot-enabled-by-unpatchable-windows-flaw/
 - Phoenix server. https://martinfowler.com/bliki/PhoenixServer.html
 
-### Docs
+## Docs
 
 - Bootloader specification. https://uapi-group.org/specifications/specs/boot_loader_specification/
 - Fedora COPR (build service). https://docs.pagure.org/copr.copr/index.html
@@ -307,7 +300,7 @@ In the boot as computation "graph" model described in this article, a generic se
 - Kairos. An OS distributed as a container. https://kairos.io
   - Whitepaper. https://github.com/kairos-io/kairos/files/11250843/Secure-Edge-Native-Architecture-white-paper-20240417.3.pdf
 
-### Papers
+## Papers
 
 - Mokhov, Mitchell, Jones. (2020). *Build systems à la carte: Theory and practice.*
   - https://ndmitchell.com/downloads/paper-build_systems_a_la_carte_theory_and_practice-21_apr_2020.pdf
@@ -317,7 +310,7 @@ In the boot as computation "graph" model described in this article, a generic se
   - https://research.facebook.com/publications/analyzing-the-cmake-build-system/
 - 
 
-### Bare metal provisioning
+## Bare metal provisioning
 
 Some or all of these may have Terraform "providers."
 
@@ -331,7 +324,7 @@ Some or all of these may have Terraform "providers."
 
 Biased comparison. https://rackn.com/support/resources/compare/
 
-### Image repositories
+## Image repositories
 
 - OpenStack (disk image; has compatible bare metal deployment tool). https://docs.openstack.org/glance/latest/
 - Vagrant (disk image). https://app.vagrantup.com/boxes/search
