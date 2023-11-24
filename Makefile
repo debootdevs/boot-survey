@@ -15,3 +15,7 @@ build/wp2.bbl: build/wp2.bcf
 build/wp2.bcf: wp2.tex  
 	pdflatex -synctex=1 -interaction=batchmode -output-directory=build wp2
 
+wp2.bib: wp2.tex build/wp2.bcf
+	biber wp2 --input-directory=build --output-format=bibtex
+	mv wp2_biber.bib $@
+	rm *.blg

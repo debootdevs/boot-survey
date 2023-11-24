@@ -530,7 +530,7 @@ Here is a short list to get us started:
   \item The STRIDE threat model. Attack trees.
   \item Secure boot
   \item TPM. Measurements.
-  \item Identity, a.k.a.~binding key material to an identifier or attribute \cite{gerck1997overview}. PKI \cite{rfc5280}, WoT.
+  \item Identity, a.k.a.~binding key material to an identifier or attribute . PKI \cite{rfc5280}, WoT.
 \end{itemize}
 
 \paragraph{Outsourcing trust}
@@ -555,6 +555,45 @@ Hence, to outsource our risk model to a set of claims made by other trusted enti
 The third item is the subject of authentication methods. See DIDs.
 %
 The other items form part of what is, in the context of public-private key cryptography, called a \emph{public key infrastructure} \cite{rfc5280}.
+
+Examples of such systems:
+\begin{itemize}
+  \item
+    Probably the most widespread system in use is the Internet public key infrastructure (PKI) based on X.509 certificates \cite{rfc5280}.
+    %
+    The process for binding entities to their identities is described by a CA's \emph{Certification Practice Statement} (CPS).
+  \item 
+    JWT \cite{rfc7519} provides an authenticated scheme to bind attributes, called \emph{claims} in this context, to keys (certification). IANA maintains a list of claims.\footnote{\url{https://www.iana.org/assignments/jwt/jwt.xhtml}}
+  \item
+    Decentralized identifiers (DIDs) provide a way to communicate and validate authentication material.
+\end{itemize}
+See also \cite{gerck1997overview}.
+
+\paragraph{Claims about artefacts} Given this, we then need a common language and taxonomy for claims that entities can make about the artefacts.
+%
+The SCITT working group is working on this.\footnote{\url{https://datatracker.ietf.org/wg/scitt/about/}}
+
+Here are some examples of claims about generic software distributions:
+\begin{itemize}
+  \item Claim that a software distribution has been published under a certain product name by an owning entity.
+  \item Existence or non-existence of registered vulnerabilities, for example in the form of CVE records.\footnote{\url{https://www.cve.org/}}
+  \item Existence and claims of audits bound to a specific software version. This idea has been floated several times in the context of smart contract deployments.
+  \item Claim that a program or library implements a certain interface or fulfils a certain contract.
+  \item Claims of concrete security guarantees in a given context and threat model.
+\end{itemize}
+%
+More relevant to the present paper, we may wish to claim that an operating system distribution image is bootable via a stated boot process, or a boot process with certain properties.
+%
+For instance:
+\begin{itemize}
+  \item Statement of format of the image (raw partition, raw GPT-formatted partitioned disk with EFI system partition) and entry point to the boot process (EFI system partition, explicit start vector)
+  \item List of components used in the boot process.
+  \item Boot computation specification in the sense of \S\ref{build}.
+  \item Contract implemented between bootloader and payload.
+  \item Preservation of privilege level between boot stages.
+  \item Boot loader makes use of secure hardware services such as TPM.
+\end{itemize}
+
 
 \subsection{Integrity/tampering boot security problem}
 
