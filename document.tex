@@ -145,23 +145,27 @@ Regarding reproducibility, the subject of \emph{reproducible builds} in software
   But for a deployment to be reproducible, every stage of the deployment should also be reproducible; with a suitable system for caching intermediate states that remain invariant on an upgrade, reproducibility can be achieved without a phoenix server model.
 
 
-\section{Boots as computations with caching} \label{build}
+\section{Boots as builds} \label{build}
 
 A boot can be regarded as a set of steps to compute the state of an initialized system. 
 %
 In some cases, recomputing the value with updated inputs (i.e.~rebooting) can be accelerated using a caching strategy, so that a reboot may occur without necessarily going through a full power cycle.
+%
+In some cases, the requirements to launch a boot stage can be provided by more than one environment, so that the same target can be reached in multiple ways.
 
-In this section, we repeatedly make use of an analogy with building software artifacts.
+In \S\ref{data-model}, we define a data model rich enough to specify describing builds with multiple valid routes to the target.
+%
+Subsequently, we show several ways to express some common boot pathways in this model.
 
-\subsection{Data model}
+\subsection{Data model} \label{data-model}
 
 \begin{definition}
   
-  An \emph{n-ary operation} from types \((T_1,\ldots,T_n)\) to type \(T_0\) is defined to be a function \(f:\prod_{i=1}^n T_i \rightarrow T_0\). 
+  An \emph{n-ary operation} from types \((T_1,\ldots,T_n)\) to type \(T_0\) is defined to be a function \(f:\prod_{i=1}^n T_i \rightarrow T_0\).\footnote{For the purposes of this paper, a `type' can be understood as a set.}
   %
-  Note that we index the output and inputs (in that order) of an \(n\)-ary operation by \([n]:=\{0,\ldots,n\}\).
+  Note that the (single) output and inputs of an \(n\)-ary operation are indexed together, in that order, by \([n]:=\{0,\ldots,n\}\).
 
-  A \emph{task} is an operation \(f\) (of any arity \(n\)) together with a labelling \(\mathtt{name}:[n]\rightarrow \mathtt{String}\) of the inputs and output by strings and a ``task description,'' which should be an explicit expression of some $n$-ary operation comprehensible in the context in which the task will be used.
+  A \emph{task} is an operation \(f\) of any arity \(n\) together with a labelling \(\mathtt{name}:[n]\rightarrow \mathtt{String}\) of the inputs and output by strings and a ``task description,'' which should be an explicit expression of some $n$-ary operation comprehensible in the context in which the task will be used.
   %
   The label \(\mathtt{name}(0)\) of the output of the operation is called the \emph{target} of the task.
 
@@ -173,8 +177,8 @@ Expressed in a Python-like pseudocode, the data schema looks something like the 
 
 \begin{lstlisting}
 [
-    (f, name_0, [name_1, ..., name_n]),
-    ...
+  (name_0, f, [name_1, ..., name_n]),
+  ...
 ]
 \end{lstlisting}
 
@@ -204,16 +208,16 @@ Or a more precisely specced JSON
 
 \begin{lstlisting}
 [
-    {
-        "target": {"label": "name_0", "type": "T_0"},
-        "inputs": [
-            {"label": "name_1", "type": "T_1"},
-            ...,
-            {"label": "name_n", "type": "T_n"},
-        ],
-        "task": @td
-    },
-    ...
+  {
+    "target": {"label": "name_0", "type": "T_0"},
+    "inputs": [
+      {"label": "name_1", "type": "T_1"},
+      ...,
+      {"label": "name_n", "type": "T_n"},
+    ],
+    "task": @td
+  },
+  ...
 ]
 \end{lstlisting}
 
@@ -264,11 +268,23 @@ This can be understood as a genuine Makefile if:
   If one's goal is determinism, all quantities on which the computation actually depends must be listed as explicit inputs.
 \end{example}
 
-\begin{example}[Dependency DAGs] 
-  
-  It is quite common to encode collections of dependent computations as a directed acyclic graph (DAG). [SOURCE]?
+\begin{example}[Dependencies]
+
+  A specialization of the build specification idea is that of \emph{dependencies} used in package management.
   %
-  If a build has the property that each target appears as the output of at most one rule, then it can be exactly encoded as a DAG with one node for each target and input, where each non-leaf nodes is decorated by the unique rule of which it is a target.
+  When installing a package, no explicit function is used to compute the installation of a package from its dependencies; the dependencies simply need to be installed on the system for the package to function.
+  %
+  Such systems are not rich enough to express a package that `depends on' another in multiple ways.
+  %
+  Hence, in a dependency specification one expects that there be at most a single task connecting each tuple of input labels to each output label.
+
+\end{example}
+
+\begin{example}[DAGs and computation] 
+  
+  A build specification does not encode a single computation, but rather potentially multiple ways that a particular function can be computed.
+  %
+  A solution of a build specification is a particular computation realising the build.
 
 \end{example}
 
@@ -293,119 +309,144 @@ Naturally, examples of multiple providers in the boot process are also plentiful
     An IP address can be derived either from a static configuration option or via DHCP, either of which itself has several providers spread across different boot stages.
 \end{itemize}
 
-
-\subsection{Build stages}
+\paragraph{Multi-stage builds}
 
 A boot system requires multiple computations that take place at different times and in different contexts. 
 %
-For example, constructing a UEFI firmware boot into an EFI application can be split into three stages:
-\begin{enumerate}
-  \item Build and install UEFI firmware to NVRAM.
-  \item Build and install EFI application to bootable media.
-  \item Power on the device and, where necessary, provide input to configuration menus.
-\end{enumerate}
 These stages can be expressed as partial evaluations of a single computation that takes, for example, the development environment, the target device, and the user requirements as input.
 %
 The targets of the associated build specification may be partitioned into connected components labelled by the build stage during which they are evaluated.
 
-\subsection{Examples}
+\subsection{Boot sequences as build specifications}
 
-In the following examples, I use the Pythonic notation and explain the typing (for which there are often multiple reasonable approaches) in prose.
+In the following examples, I use the Pythonic notation and explain the typing, for which there are often multiple reasonable approaches, and task descriptions in prose.
+
+How can examples like these be applied in practice?
+%
+The procedure followed in the examples is:
+\begin{itemize}
+  \item Mechanistic in nature, and can easily be followed manually by a human programmer with access to the necessary information or even automated;
+  \item Provides a clear specification language for boot sequence implementors.
+\end{itemize}
 
 \subsubsection{Loading an EFI application}
 
-We start from the assumption that we want to load and boot into an EFI
-executable file \texttt{BOOTX64.EFI}.
-
+Suppose we want to boot a system into an EFI application stored as an EFI executable on some removable medium.\footnote{Cf.~\url{https://wiki.osdev.org/UEFI\#UEFI\_applications\_in\_detail}}
+%
+From a fresh system to a full initialisation proceeds in several stages:
+%
 \begin{enumerate}
-\def\labelenumi{\arabic{enumi}.}
-\tightlist
-\item
-  To jump into this program (i.e.~compute the state of an initialized
-  system running this program), we need the program binary itself and a
-  firmware library function to parse and load PE executable with EFI
-  headers.
-\item
-  To obtain the library function \texttt{efi\_exec}, we need to resolve
-  the symbol from a loaded firmware implementation providing this
-  feature. Libraries that implement either the UEFI or EBBR
-  specifications provide it.
-\item
-  A UEFI symbol table can be computed by loading it from a UEFI
-  implementation, such as Tianocore's OVMF firmware for virtual
-  machines. It is presumed that this firmware is loaded from a canonical
-  location (e.g.~NVRAM) known to the first stage bootloader, so we do
-  not add further tasks to source this.
-\item
-  The EFI program binary can be computed by fetching it from a storage
-  location. We can treat the system I/O bus as an oracle from which we
-  fetch things by passing an address. For example, within the UEFI
-  abstraction layer, this address could be typed as a
-  \href{https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html}{UEFI
-  Device Path}. (Again, the fetcher will need to resolve symbols for the
-  drivers to resolve these paths --- for example, a VFAT filesystem and
-  mass storage device driver --- but to avoid repetition in this purely
-  illustrative example, we do not make these tasks explicit in the
-  listing below.)
-\item
-  The boot device path is read from the boot menu table in the EFIVARS
-  section of NVRAM. The line number is either the configured default or
-  is entered in an interactive user session.
-\item
-  \texttt{efi-boot-number} is a natural number, denoting the menu entry
-  selected by a user via an interactive console session.
+  \item \emph{Install firmware.} Build and install firmware to NVRAM.
+  \item \emph{Install payload.} Build and install EFI application to bootable media.
+  \item \emph{Configure.} Write boot options including target device, partition number, and filesystem path to NVRAM.
+  \item \emph{Boot.} Power on the device and, where necessary, capture user input.
 \end{enumerate}
+%
+Specification of these tasks usually fall to different entities:
+%
+\begin{enumerate}
+  \item The OEM usually ships devices with firmware pre-installed.
+  \item The user or customer-facing vendor builds and installs the payload.
+  \item The user configures the UEFI boot menu.
+  \item Firmware developers define the initialization process and handoff.
+\end{enumerate}
+%
+However, in principle there is no reason for this task allocation other than some tasks (such as firmware installation) are generally considered too difficult for ordinary users to pull off.
 
-We could go still further and define providers of \texttt{Console} (e.g.~UART serial or graphical output), but the point has been made.
+To describe the process in more detail, we suppose further that the removable drive is a USB drive formatted with a GUID partition table, and the EFI application is stored as an EFI executable file on a VFAT-formatted EFI system partition on the drive.
+%
+Our target is the computation of a full system state \texttt{init}. 
 
-\begin{verbatim}
+An abstracted, implementation-agnostic form of the boot process might look as follows:
+%
+\begin{lstlisting}
+# EFI application boot, abstract
 [
-    (apply, Exec(efi.Application), [efi.start, efi.Application]),
-    (apply, efi.Application, [efi.load, boot_devicepath]),
-    (resolve, efi.start, [Interface(efi.BootServices), "StartImage"]),
-    (resolve, efi.load, [Interface(efi.BootServices), "LoadImage"]),
+  (init, efi.exec, [payload]),
+  (payload, vfat.read, [boot_fs, boot_path]),
+  (boot_fs, vfat.mount, [boot_part]),
+  (boot_part, gpt.get_part, [boot_dev, boot_partnum]),
+  (boot_dev, usb.get, [boot_devpath])
 ]
-\end{verbatim}
-Technical details like memory addresses and passing through parent context are omitted.
-
-%The leaves of this build specification are the UEFI DevicePath \texttt{boot-devicepath} and the interface \texttt{Provides(EFI_BOOT_SERVICES)}. 
+\end{lstlisting}
 %
-If the firmware implementation is considered as a separate input to the EFI variables, the computation can be divided into \emph{build-time} versus \emph{configure-time}, and we could add the following build-time tasks:
-\begin{verbatim}
+In prose, the system needs to be able to:
+\begin{enumerate}
+  \item Locate, initialize, and obtain an read interface to the USB device.
+  \item Parse a GUID partition table and locate a partition selected by partition number.
+  \item Mount and read from a VFAT filesystem.
+  \item Execute an EFI application in EFI executable format.
+\end{enumerate}
+%
+The system also needs to be informed values of the leaves of this build specification, that is, the values of \texttt{boot\_path}, \texttt{boot\_partnum}, and \texttt{boot\_devpath}.
+%
+More precisely, these values need to be recorded somewhere accessible to the early boot environment and in a format understood by the same.
+
+Acknowledging that the values of \texttt{efi.exec} and the other functions in the preceding listing are merely abstract interfaces for which we must provide an implementation (i.e.~a driver), we may rewrite the above as follows:
+%
+\begin{lstlisting}[name=efi]
+# EFI application boot, concrete
 [
-    (efi.BootServices, Interface(efi.BootServices), [Interface(UEFI)]),
-    (efi.BootServices, Interface(efi.BootServices), [Interface(EBBR)]),
-    (load_uefi, Interface(UEFI), ["OVMF.fd"]),
+  (init, apply, [efi.exec, payload]),
+  (payload, apply, [vfat.read, boot_fs, boot_path]),
+  (boot_fs, apply, [vfat.mount, boot_part]),
+  (boot_part, apply, [gpt.get_part, boot_dev, boot_partnum]),
+  (boot_dev, apply, [usb.get, boot_devpath])
+\end{lstlisting}
+%
+All of the listed driver functions are now leaves for which we must specify \emph{providers}.
+%
+Typically, the individual functions will be made available, along with other related functions, as an entry in a function table provided by an associated driver.
+%
+\begin{lstlisting}[name=efi]
+  (efi.exec, get, [Impl(EFI_BOOT_SERVICES)]),
+  (vfat.read, get, [Impl(VFAT)]),
+  (vfat.mount, get, [Impl(VFAT)]),
+  (gpt.get_part, get, [Impl(GPT)]),
+  (usb.get, get, [Impl(USB)])
+\end{lstlisting}
+%
+Merging further, multiple standards guarantee implementations of all of the required drivers:
+%
+\begin{lstlisting}[name=efi]
+  (Impl(EFI_BOOT_SERVICES), get, [Impl(UEFI)]),
+  (Impl(EFI_BOOT_SERVICES), get, [Impl(EBBR)]),
+  ...
+\end{lstlisting}
+%
+This yields our first instance of multiple providers of the same interface.
+%
+We can continue the same idea by listing multiple implementations:
+%
+\begin{lstlisting}[firstnumber=22]
+  (Impl(EBBR), get, [U-Boot]),
+  (Impl(UEFI), get, [EDK2]),
+  ...
+\end{lstlisting}
+
+Returning to the leaf data, we usually need to obtain the device from some commonly understood string encoding such as a Devicetree path, or possibly bundled together as in a UEFI device path.\footnote{\url{https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html}}
+%
+The UEFI specification asks that the boot manager read such paths from a table of options \emph{Boot0000}, \emph{Boot0001}, and so on, in an order defined by the variable \emph{BootOrder}.\footnote{\url{https://uefi.org/specs/UEFI/2.10/03_Boot_Manager.html}}
+%
+\begin{lstlisting}[firstnumber=30]
+  (boot_path, efi.devpath.get_fs_path, [boot_efi_devpath]),
+  (boot_partnum, efi.devpath.get_partnum, [boot_efi_devpath]),
+  (boot_dev, efi.devpath.get_dev, [boot_efi_devpath]),
+  (boot_efi_devpath, select, [fw.efivars.boot, bootnum])
+  (bootnum, select, [fw.efivars.bootorder, 0])
 ]
-\end{verbatim}
-
-Adding user input via a firmware boot option selection screen:
-\begin{verbatim}
-[
-    (efi.getvar, boot_devicepath, [Interface(efi.RuntimeServices), efivars.1, "BootCurrent"]),
-    (efi.setvar, efivars.1, [Interface(efi.RuntimeServices), efivars.0, "BootCurrent", boot_option]),
-    (efi.get_input, boot_option, [Provides(Console), INPUT]),
-]
-\end{verbatim}
-The \texttt{get\_input} function is a summary of a potentially complex interaction.
+\end{lstlisting}
 %
-Some details are specified by the \emph{Human Interface Infrastructure} (HII) component of UEFI.\footnote{\url{https://uefi.org/specs/UEFI/2.10/33_Human_Interface_Infrastructure.html}}
-
-
-Note that in this application, some leaf variables (\texttt{efi-bootmenu} and console configuration) can be easily
-reconfigured without reinstalling the firmware image itself. 
+The new leaves are the EFI variables mentioned above which the user may configure in a firmware configuration utility.
 %
-This is called making use of a cached build output.
-%
-An automated build system could use knowledge of the services provided by firmware and available media to automatically select locations to persistently cache intermediate computations such as firmware, kernel loaders, boot images, and configuration.
+A modern boot manager should be able to facilitate this process by scanning available devices and populating the \emph{Boot} array automatically, so that the user need only configure \emph{BootOrder}.
+
 
 \subsubsection{Loading Linux with a kernel command line}
 
-Here's how a typical invocation of the kernel looks.
-
+A typical invocation of a Linux kernel makes use of the following inputs:
+%
 \begin{enumerate}
-\def\labelenumi{\arabic{enumi}.}
-\tightlist
 \item
   To initialize the state, we need a Linux kernel and a kernel commandline. 
   %
@@ -427,30 +468,34 @@ Here's how a typical invocation of the kernel looks.
   path}.
 \end{enumerate}
 
-\begin{verbatim}
+\begin{lstlisting}
 # Initramfs boot with requirements deduced from kernel commandline
 [
-    (run, Init(Linux), [loader, kernel, initramfs, root, args]),
-    (build, initramfs, [kernel_modules, root]),
+  (init, apply, [loader, kernel, initramfs, root, args]),
+  (initramfs, build, [kernel_modules, root]),
 ]
-\end{verbatim}
+\end{lstlisting}
 
 The leaves of the build are \texttt{loader}, \texttt{kernel}, \texttt{root}, and \texttt{args}. 
 %
 The \texttt{initramfs} target is computed a build time and cached on a boot medium.
 %
 The expanded computation is
-\begin{verbatim}
-  # Initramfs boot with requirements deduced from kernel commandline
-  [
-      (run, Init(Linux), [loader, kernel, initramfs, root, args]),
-      (load, kernel, [bootdev.state, kernel_path]),
-      (load, initramfs, [bootdev.state, initramfs_path]),
-      (save, bootdev.state, [initramfs, initramfs_path]),
-      (build, initramfs, [kernel_modules, root]),
-  ]
-\end{verbatim}
+\begin{lstlisting}
+# Initramfs boot with requirements deduced from kernel commandline
+[
+  (init, apply, [loader, kernel, initramfs, root, args]),
+  (kernel, read, [boot_fs[1], kernel_path]),
+  (initramfs, read, [boot_fs[1], initramfs_path]),
+  (boot_fs[1], write, [initramfs, initramfs_path, boot_fs[0]]),
+  (initramfs, build, [kernel_modules, root]),
+]
+\end{lstlisting}
+%
 The runtime leaves \texttt{kernel\_path}, \texttt{initramfs\_path}, and \texttt{root}+\texttt{args} are exactly the data to be found in a typical Linux boot option configuration.\footnote{\url{https://uapi-group.org/specifications/specs/boot\_loader\_specification/\#type-1-boot-loader-specification-entries}}
+%
+We attach a counter to the handle \texttt{boot\_fs} to indicate that the write operation alters the state of the device to which it mediates access.
+
 
 \subsubsection{Multi stage boot}
 
@@ -464,7 +509,7 @@ Typically, the full computation falls into several stages:
 \end{enumerate}
 
 \begin{enumerate}
-  \item Booting a program that resides on a filesystem other than FAT; tor example, \texttt{ext4} or \texttt{btrfs}. 
+  \item Booting a program that resides on a filesystem other than FAT; for example, \texttt{ext4} or \texttt{btrfs}. 
   %
   The target \texttt{btrfs} is provided by either GRUB or Linux.
   %
