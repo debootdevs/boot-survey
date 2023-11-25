@@ -16,3 +16,4 @@ amssymb
 iftex
 lmodern
 fancyvrb
+listings

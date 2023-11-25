@@ -6,6 +6,7 @@
 
 
 \usepackage[english]{babel}   % Spacing and hyphenation rules for English.
+\usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc} % ensures that ANSI carets and mid render correctly and are searchable
 
 \usepackage[margin=15mm]{geometry}
@@ -17,6 +18,20 @@
 \usepackage{verbatim}
 
 \usepackage{amsthm}
+
+
+%%% CODE LISTINGS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\usepackage{listings}
+\lstset{
+  numbers=left, 
+  xleftmargin=3em, 
+  numberstyle=\tiny, 
+  basicstyle=\ttfamily,
+  aboveskip=2ex,
+  belowskip=2ex
+}
+
 
 
 %%% HYPERLINKS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -43,7 +58,7 @@
 \usepackage{csquotes} % prevent a warning when using biblatex with babel
 
 \addbibresource{master.bib}
-\addbibresource{wp2.bib}
+%\addbibresource{wp2.bib}
 
 %%% MACROS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

@@ -21,18 +21,23 @@ Despite this, there are a few reasons one may wish to expend attention on the bo
 %
 Paramount among these is \emph{security.} 
 %
-In order to evaluate the security of the software supply chain used in a computer system, one must trace the root of trust all the way to the beginning of the boot sequence.
-
-A second, related issue is \emph{reproducibility}, that is, the art of getting servers into the same state regardless of the starting environment. {[}Why do we have to go all the way back to bare metal for
-that?{]} 
+In order to evaluate the security of the software supply chain deployed in a computer system, one must trace the root of trust all the way to the beginning of a power cycle.
 %
-This is related to the idea of \emph{immutable infrastructure},
-otherwise known as the
-\href{https://martinfowler.com/bliki/PhoenixServer.html}{phoenix server}
-model. In a HA cluster with at least two physical nodes, this power
-cycle \(\rightarrow\) bare metal redeployment can be achieved with zero
-downtime. See also ``reproducible builds''
-(https://hal.science/hal-03196519/, https://reproducible-builds.org).
+This entails careful formulation and analysis of the security properties preserved during the execution and handoff of each stage of the boot sequence.
+
+A second, related issue is \emph{determinism}, that is, the idea that the same boot process configuration will yield the same system state transition regardless of context.
+%
+To this end, both compilation and building of the deployed software and execution of initialization code must be reproducible from a clear task description that makes all inputs explicit.
+
+\begin{remark}
+  
+  Clearly, it is neither practical nor desirable for system state to be literally immutable, or reproducible: at the very least, we expect that the machine clock ticks on, IP traffic is processed, logs accumulate, and the state of stateful software evolves whle the machine is operational.
+
+  A simple view on determinism asks only that the configuration and software installed on a system together with the set of active services be reproducible.
+  %
+  In a Linux environment, this might mean invariance of the contents of the $\mathtt{/boot}$, $\mathtt{/etc}$, and $\mathtt{/usr}$ trees.
+
+\end{remark}
 
 We think the bootloader is overdue a modern theoretical treatment. 
 %
@@ -129,53 +134,56 @@ As well as providing essential input data for boot loaders to discover and initi
     Devicetree.\footnote{\url{https://www.devicetree.org/}}
 \end{itemize}
 
+Regarding reproducibility, the subject of \emph{reproducible builds} in software distribution has already received a fair amount of attention \cite{lamb:hal-03196519} (https://hal.science/hal-03196519/, https://reproducible-builds.org).
+  
+  The latter is clearly related in spirit to the idea of \emph{immutable infrastructure}.
+  %
+  This term is commonly used to refer to the phoenix server model,\footnote{} where servers are redeployed from scratch --- in particular, including a power cycle --- whenever an upgrade is requested.
+  %
+  If deployments from scratch are reproducible, then this system ensures that upgrades are reproducible too.
 
-\section{Boots as computations with cacheing} \label{build}
+  But for a deployment to be reproducible, every stage of the deployment should also be reproducible; with a suitable system for caching intermediate states that remain invariant on an upgrade, reproducibility can be achieved without a phoenix server model.
 
-A boot can be regarded as a set of steps to compute the state of an
-initialized system. In some cases, recomputing the value with updated
-inputs (i.e.~rebooting) can be accelerated using a caching strategy, so
-that a reboot may occur without necessarily going through a full power
-cycle (e.g.~switch-root, \texttt{kexec}).
 
-In this section, we repeatedly make use of an analogy with building
-(i.e.~compiling) software artifacts.
+\section{Boots as computations with caching} \label{build}
 
-\hypertarget{data-model}{%
-\subsection{Data model}\label{data-model}}
+A boot can be regarded as a set of steps to compute the state of an initialized system. 
+%
+In some cases, recomputing the value with updated inputs (i.e.~rebooting) can be accelerated using a caching strategy, so that a reboot may occur without necessarily going through a full power cycle.
 
-\textbf{Definition.} An \emph{n-ary operation} from types
-\((T_1,\ldots,T_n)\) to type \(T_0\) is defined to be a function
-\(f:\prod_{i=1}^n T_i \rightarrow T_0\). Note that we index the output
-and inputs (in that order) of an \(n\)-ary operation by
-\([n]:=\{0,\ldots,n\}\).
+In this section, we repeatedly make use of an analogy with building software artifacts.
 
-A \emph{task} is an operation \(f\) (of any arity \(n\)) together with a
-labelling \(\mathtt{name}:[n]\rightarrow \mathtt{String}\) of the inputs
-and output by strings and a ``task description,'' which should be an
-expression of the underlying function understandable to the computer
-environment in which this computation will be executed. The label
-\(\mathtt{name}(0)\) of the output of the operation is called the
-\emph{target} of the task.
+\subsection{Data model}
 
-A \emph{build specification} or simply \emph{build} is a set of tasks.
-Expressed in a Python-like pseudocode, the data schema looks something
-like the following:
+\begin{definition}
+  
+  An \emph{n-ary operation} from types \((T_1,\ldots,T_n)\) to type \(T_0\) is defined to be a function \(f:\prod_{i=1}^n T_i \rightarrow T_0\). 
+  %
+  Note that we index the output and inputs (in that order) of an \(n\)-ary operation by \([n]:=\{0,\ldots,n\}\).
 
-\begin{verbatim}
+  A \emph{task} is an operation \(f\) (of any arity \(n\)) together with a labelling \(\mathtt{name}:[n]\rightarrow \mathtt{String}\) of the inputs and output by strings and a ``task description,'' which should be an explicit expression of some $n$-ary operation comprehensible in the context in which the task will be used.
+  %
+  The label \(\mathtt{name}(0)\) of the output of the operation is called the \emph{target} of the task.
+
+  A \emph{build specification} or simply \emph{build} is a set of tasks.
+
+\end{definition}
+
+Expressed in a Python-like pseudocode, the data schema looks something like the following:
+
+\begin{lstlisting}
 [
     (f, name_0, [name_1, ..., name_n]),
     ...
 ]
-\end{verbatim}
+\end{lstlisting}
 
-In this picture, the task description would be a Python function and the
-labelled source and destination types are denoted by (typed) named
-variables. (This is purely illustrative and is certainly not supposed to
-suggest a bootloader implemented in Python!)
+In this picture, the task description would be a Python function and the labelled source and destination types are denoted by (typed) named variables.\footnote{This is purely illustrative and is certainly not supposed to
+suggest a bootloader implemented in Python!}
 
 Or a more precisely specced JSON
 
+\begin{comment}
 \begin{Shaded}
 \begin{Highlighting}[]
 \OtherTok{[}
@@ -192,50 +200,59 @@ Or a more precisely specced JSON
 \OtherTok{]}
 \end{Highlighting}
 \end{Shaded}
+\end{comment}
 
-Here \texttt{@td} should be some task description schema whose details
-we leave completely open.
+\begin{lstlisting}
+[
+    {
+        "target": {"label": "name_0", "type": "T_0"},
+        "inputs": [
+            {"label": "name_1", "type": "T_1"},
+            ...,
+            {"label": "name_n", "type": "T_n"},
+        ],
+        "task": @td
+    },
+    ...
+]
+\end{lstlisting}
 
-A build specification is said to be \emph{solved} if each target is the
-output of at most one task. A solved build can be represented as a DAG.
+Here \texttt{@td} should be some task description schema whose details we leave unspecified.
 
-Let \(B\) be a build and \(t\) a target of \(B\), and
-\((i_1,\ldots,i_k)\) a set of labels. A \emph{solution} of
-\((B,t,(i_1,\ldots,i_k))\) is a subset \(S\) of \(B\) such that:
+\begin{definition}
+  Let \(B\) be a build and \(t\) a target of \(B\), and \((i_1,\ldots,i_k)\) a set of labels. 
+  %
+  A \emph{solution} of \((B,t,(i_1,\ldots,i_k))\) is a subset \(S\) of \(B\) such that:
 
-\begin{itemize}
-\tightlist
-\item
-  \(t\) is a \emph{root} of \(S\), that is, it is the unique target that
-  is not also an input.
-\item
-  \(i_1,\ldots,i_k\) are the leaves of \(S\), i.e.~they are the only
-  inputs that are not also targets.
-\item
-  Every target in \(S\) is the output of at most one rule in \(S\).
-\end{itemize}
+  \begin{itemize}
+  \item
+    \(t\) is a \emph{root} of \(S\), that is, it is the unique target that is not also an input.
+  \item
+    \(i_1,\ldots,i_k\) are the leaves of \(S\), i.e.~they are the only inputs that are not also targets.
+  \item
+    Every target in \(S\) is the output of at most one rule in \(S\).
+  \end{itemize}
 
-In other words, a solution of \((B,t,(i_1,\ldots,i_k))\) defines a way
-to compute an element of \(T_t\) given elements of
-\(T_{i_1},\ldots,T_{i_k}\).
+\end{definition}
+
+In other words, a solution of \((B,t,(i_1,\ldots,i_k))\) defines a way to compute an element of \(T_t\) given elements of \(T_{i_1},\ldots,T_{i_k}\).
 
 \begin{example}[Makefiles as build specifications]
   We can express the data of a build specification in a Makefile-like syntax as follows:
 
-\begin{verbatim}
+  
+\begin{lstlisting}[language=Python]
 name_0: name_1, ... name_n
     echo $(f name_1 ... name_n) > name_0
-\end{verbatim}
+\end{lstlisting}
 
 This can be understood as a genuine Makefile if:
 
 \begin{itemize}
-\tightlist
 \item
-  All the inputs and outputs are ``files;'' that is,
-  \(T_i=\mathtt{File}\) for all \(i\). For the purposes of Make, a
-  \emph{file} can be understood as a tuple
-  \((\mathtt{name},\mathtt{mtime}, \mathtt{data})\).
+  All the inputs and outputs are ``files;'' that is, \(T_i=\mathtt{File}\) for all \(i\). 
+  %
+  For the purposes of Make, a \emph{file} can be understood as a tuple \((\mathtt{name},\mathtt{mtime}, \mathtt{data})\).
 \item
   \texttt{f} is a shell function.
 \item
@@ -244,12 +261,12 @@ This can be understood as a genuine Makefile if:
 
   Recipes in real-life Makefiles (and indeed any build system) are often not pure functions, but rather depend implicitly on some system state whose scope varies on a per-target basis. 
   %
-  If one's goal is reproducibility, efforts should be made to list all inputs as explicit dependencies.
+  If one's goal is determinism, all quantities on which the computation actually depends must be listed as explicit inputs.
 \end{example}
 
 \begin{example}[Dependency DAGs] 
   
-  It is quite common to encode collections of dependent computations as a directed acyclic graph (DAG).
+  It is quite common to encode collections of dependent computations as a directed acyclic graph (DAG). [SOURCE]?
   %
   If a build has the property that each target appears as the output of at most one rule, then it can be exactly encoded as a DAG with one node for each target and input, where each non-leaf nodes is decorated by the unique rule of which it is a target.
 
