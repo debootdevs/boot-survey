@@ -23,21 +23,27 @@ Paramount among these is \emph{security.}
 %
 In order to evaluate the security of the software supply chain deployed in a computer system, one must trace the root of trust all the way to the beginning of a power cycle.
 %
-This entails careful formulation and analysis of the security properties preserved during the execution and handoff of each stage of the boot sequence.
+This entails careful formulation and analysis of the security invariants that ought to be preserved during the execution and handoff of each stage of the boot sequence. %, and measurement of system state during instantiations to detect failures of these properties.
 
 A second, related issue is \emph{determinism}, that is, the idea that the same boot process configuration will yield the same system state transition regardless of context.
 %
 To this end, both compilation and building of the deployed software and execution of initialization code must be reproducible from a clear task description that makes all inputs explicit.
+%
+Reproducibility of execution can be detected in practice by making careful \emph{measurements} of system state at critical stages.
 
+\begin{comment}
 \begin{remark}
   
   Clearly, it is neither practical nor desirable for system state to be literally immutable, or reproducible: at the very least, we expect that the machine clock ticks on, IP traffic is processed, logs accumulate, and the state of stateful software evolves whle the machine is operational.
 
+  Nonetheless, some 
+  %
   A simple view on determinism asks only that the configuration and software installed on a system together with the set of active services be reproducible.
   %
   In a Linux environment, this might mean invariance of the contents of the $\mathtt{/boot}$, $\mathtt{/etc}$, and $\mathtt{/usr}$ trees.
 
 \end{remark}
+\end{comment}
 
 We think the bootloader is overdue a modern theoretical treatment. 
 %
@@ -124,18 +130,22 @@ The early boot and system initialization standards are accompanied by standards 
 These models aggregate the addressing systems of various bus types (e.g. PCI) into a single namespace.
 %
 As well as providing essential input data for boot loaders to discover and initialize peripherals, a path-like serialization format is useful for specifying the location of boot images and configuration in boot definitions.
+%
 \begin{itemize}
   \item
     The UEFI specification includes a systematic and quite general language of \emph{devpaths} for defining \emph{locations} for sourcing images.\footnote{\url{https://uefi.org/specs/UEFI/2.10/10\_Protocols\_Device\_Path\_Protocol.html}}
 
-    The \emph{Advanced Configuration and Power Interface} (ACPI), also maintained by the UEFI Forum. Generally something employed at the OS level but which is available to UEFI.
+    A related standard is the \emph{Advanced Configuration and Power Interface} (ACPI) device model. 
+    %
+    ACPI is also maintained by the UEFI Forum and can be invoked within UEFI devpaths, but is more commonly used for initialising a booted operating system.
     
   \item
-    Devicetree.\footnote{\url{https://www.devicetree.org/}}
+    The Devicetree specification provides an alternative data model and accompanying source and binary formats for informing bootloaders about hardware layout.\footnote{\url{https://www.devicetree.org/}}
 \end{itemize}
 
 Regarding reproducibility, the subject of \emph{reproducible builds} in software distribution has already received a fair amount of attention \cite{lamb:hal-03196519} (https://hal.science/hal-03196519/, https://reproducible-builds.org).
   
+TODO
   The latter is clearly related in spirit to the idea of \emph{immutable infrastructure}.
   %
   This term is commonly used to refer to the phoenix server model,\footnote{} where servers are redeployed from scratch --- in particular, including a power cycle --- whenever an upgrade is requested.
@@ -185,7 +195,7 @@ Expressed in a Python-like pseudocode, the data schema looks something like the 
 In this picture, the task description would be a Python function and the labelled source and destination types are denoted by (typed) named variables.\footnote{This is purely illustrative and is certainly not supposed to
 suggest a bootloader implemented in Python!}
 
-Or a more precisely specced JSON
+We express the same data more verbosely in a JSON format:
 
 \begin{comment}
 \begin{Shaded}
@@ -230,7 +240,7 @@ Here \texttt{@td} should be some task description schema whose details we leave 
 
   \begin{itemize}
   \item
-    \(t\) is a \emph{root} of \(S\), that is, it is the unique target that is not also an input.
+    \(t\) is a \emph{root} of \(S\), that is, it is the unique target contained in $S$ that is not also an input.
   \item
     \(i_1,\ldots,i_k\) are the leaves of \(S\), i.e.~they are the only inputs that are not also targets.
   \item
@@ -239,7 +249,7 @@ Here \texttt{@td} should be some task description schema whose details we leave 
 
 \end{definition}
 
-In other words, a solution of \((B,t,(i_1,\ldots,i_k))\) defines a way to compute an element of \(T_t\) given elements of \(T_{i_1},\ldots,T_{i_k}\).
+In other words, a solution of \((B,t,(i_1,\ldots,i_k))\) defines a way (but not necessarily a sequential order) to compute an element of \(T_t\) given elements of \(T_{i_1},\ldots,T_{i_k}\).
 
 \begin{example}[Makefiles as build specifications]
   We can express the data of a build specification in a Makefile-like syntax as follows:
@@ -277,6 +287,8 @@ This can be understood as a genuine Makefile if:
   Such systems are not rich enough to express a package that `depends on' another in multiple ways.
   %
   Hence, in a dependency specification one expects that there be at most a single task connecting each tuple of input labels to each output label.
+  %
+  However, a label may still be the target of more than one task.
 
 \end{example}
 
@@ -284,7 +296,7 @@ This can be understood as a genuine Makefile if:
   
   A build specification does not encode a single computation, but rather potentially multiple ways that a particular function can be computed.
   %
-  A solution of a build specification is a particular computation realising the build.
+  A solution of a build specification is a particular *declaratively specified) computation realising the build.
 
 \end{example}
 
@@ -317,6 +329,47 @@ These stages can be expressed as partial evaluations of a single computation tha
 %
 The targets of the associated build specification may be partitioned into connected components labelled by the build stage during which they are evaluated.
 
+\begin{example}[Caching state to persistent storage] \label{cache}
+
+  Suppose we have a division of a computation into ``build time'' and ``run time.''
+  %
+  The system must undergo a power cycle between these stages, so they cannot share any memory state.
+  %
+  Suppose some quantity \texttt{blob} available at build time needs to be made available at run time; it must be cached to persistent storage readable by the run time computer.
+
+  To model this, we posit an $\mathbb{N}$-indexed variable \texttt{storage\_s[]} that tracks the state of all attached persistent storage devices.
+  %
+  We can consider it as a list of tuples \emph{(device,state)}, where \emph{state} comprises some metadata and a large byte array.
+  %
+  The build environment provides a driver which yields a handle \texttt{dev\_h} to an attached storage device --- essentially a method table with \texttt{load} and \texttt{save} implementations.
+  %
+  These can be thought of as returning \emph{commands} to the physical device.
+  
+  A state update to storage lists as follows:
+  \begin{lstlisting}
+[
+  # build time
+  (tx, save, [dev_h, blob, path]),
+  (storage_s[1], commit, [storage_s[0], [tx]])
+]
+  \end{lstlisting}
+  We have explicitly noted pre-build \texttt{storage\_s[0]} and post-build \texttt{storage\_s[1]} storage device state.
+  
+  Then, at runtime we can retrieve it.
+  \begin{lstlisting}
+[
+  # run time
+  (q, load, [dev_h_, path]),
+  (blob_, query, [storage_s[1], [q]])
+]
+  \end{lstlisting}
+  Note that at run time we have a different instantiation of the device handle \texttt{dev\_h\_}, and possibly even a different \emph{type} of handle if the run and build environments have different driver models.
+  %
+  Moreover, although we certainly hope that the retrieved value \texttt{blob\_} equals the saved value \texttt{blob}, this property is not guaranteed syntactically --- see \S\ref{security}.
+
+\end{example}
+
+
 \subsection{Boot sequences as build specifications}
 
 In the following examples, I use the Pythonic notation and explain the typing, for which there are often multiple reasonable approaches, and task descriptions in prose.
@@ -329,11 +382,11 @@ The procedure followed in the examples is:
   \item Provides a clear specification language for boot sequence implementors.
 \end{itemize}
 
-\subsubsection{Loading an EFI application}
+\subsubsection{Loading an EFI application} \label{efi-boot}
 
 Suppose we want to boot a system into an EFI application stored as an EFI executable on some removable medium.\footnote{Cf.~\url{https://wiki.osdev.org/UEFI\#UEFI\_applications\_in\_detail}}
 %
-From a fresh system to a full initialisation proceeds in several stages:
+From a fresh system to a full initialization proceeds in several stages:
 %
 \begin{enumerate}
   \item \emph{Install firmware.} Build and install firmware to NVRAM.
@@ -353,7 +406,7 @@ Specification of these tasks usually fall to different entities:
 %
 However, in principle there is no reason for this task allocation other than some tasks (such as firmware installation) are generally considered too difficult for ordinary users to pull off.
 
-To describe the process in more detail, we suppose further that the removable drive is a USB drive formatted with a GUID partition table, and the EFI application is stored as an EFI executable file on a VFAT-formatted EFI system partition on the drive.
+To describe the process in more detail, we suppose further that the removable drive is a USB drive formatted with a GUID partition table,\footnote{\url{https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html}} and the EFI application is stored as an EFI executable file on a VFAT-formatted EFI system partition on the drive.
 %
 Our target is the computation of a full system state \texttt{init}. 
 
@@ -372,10 +425,10 @@ An abstracted, implementation-agnostic form of the boot process might look as fo
 %
 In prose, the system needs to be able to:
 \begin{enumerate}
-  \item Locate, initialize, and obtain an read interface to the USB device.
-  \item Parse a GUID partition table and locate a partition selected by partition number.
-  \item Mount and read from a VFAT filesystem.
-  \item Execute an EFI application in EFI executable format.
+  \item Locate, initialize, and obtain a read interface \texttt{boot\_dev} to the USB device.
+  \item Parse a GUID partition table and locate a partition \texttt{boot\_part} selected by partition number.
+  \item Mount and read from a VFAT filesystem \texttt{boot\_fs} stored on the partition.
+  \item Execute an EFI application \texttt{payload} saved on \texttt{boot\_fs} in EFI executable format.
 \end{enumerate}
 %
 The system also needs to be informed values of the leaves of this build specification, that is, the values of \texttt{boot\_path}, \texttt{boot\_partnum}, and \texttt{boot\_devpath}.
@@ -424,7 +477,7 @@ We can continue the same idea by listing multiple implementations:
   ...
 \end{lstlisting}
 
-Returning to the leaf data, we usually need to obtain the device from some commonly understood string encoding such as a Devicetree path, or possibly bundled together as in a UEFI device path.\footnote{\url{https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html}}
+Returning to the leaf data, we usually need to obtain the device from some commonly understood string encoding such as a Devicetree path, or possibly bundled together as in a UEFI device path.%\footnote{\url{https://uefi.org/specs/UEFI/2.10/10_Protocols_Device_Path_Protocol.html}}
 %
 The UEFI specification asks that the boot manager read such paths from a table of options \emph{Boot0000}, \emph{Boot0001}, and so on, in an order defined by the variable \emph{BootOrder}.\footnote{\url{https://uefi.org/specs/UEFI/2.10/03_Boot_Manager.html}}
 %
@@ -442,99 +495,125 @@ The new leaves are the EFI variables mentioned above which the user may configur
 A modern boot manager should be able to facilitate this process by scanning available devices and populating the \emph{Boot} array automatically, so that the user need only configure \emph{BootOrder}.
 
 
-\subsubsection{Loading Linux with a kernel command line}
+\subsubsection{Loading Linux with a kernel command line} \label{linux-boot}
 
+Suppose now that we wish to load and jump into a Linux kernel from the GRUB boot manager.
+%
 A typical invocation of a Linux kernel makes use of the following inputs:
 %
 \begin{enumerate}
 \item
-  To initialize the state, we need a Linux kernel and a kernel commandline. 
+  To initialize the state, we need a Linux kernel (a binary blob) and a kernel commandline (a string). 
   %
-  The kernel command line must at least have a \texttt{root=} argument. 
-  %
-  If an initramfs is used, we also need the underlying data for that as well as the corresponding command line argument. 
+  The kernel command line may have many arguments, but at the very least it must have a \texttt{root=} argument, which may be one of a few permitted forms.
+
 \item
-  The kernel and initramfs have type \(\mathbb{B}^\star\),
-  %
-  The other leaves \texttt{root} and \texttt{extra\_params} have type \(\mathtt{String}\).
+  If an initramfs is used, as it is for all but the most elementary kernel invocations, we need the initramfs binary blob as well.
+
 \item
-  If the bootloader also has to fetch \texttt{vmlinuz} from a peripheral
-  (i.e.~it is not already assumed to reside in a hardcoded location),
-  then we can add a fetch stage for that too. The type of the input
-  \texttt{kernel-path} should depend on the environment and available
-  drivers for fetching. For example, if the implicit context is GRUB,
-  \texttt{kernel-path} should be typed as a
-  \href{https://www.gnu.org/software/grub/manual/grub/grub.html\#Naming-convention}{GRUB
-  path}.
+  In some cases, the loader may also require a Devicetree blob describing the layout of hardware.
 \end{enumerate}
+%
+We can express this boot na\"ively as follows:
+\begin{lstlisting}[name=grub]
+  # Initramfs boot with requirements deduced from kernel commandline
+  [
+    (init, apply, [load, kernel, initramfs, root, args]),
+    (load, get, [Impl(Loader)]),
+  \end{lstlisting}
 
-\begin{lstlisting}
-# Initramfs boot with requirements deduced from kernel commandline
-[
-  (init, apply, [loader, kernel, initramfs, root, args]),
-  (initramfs, build, [kernel_modules, root]),
+In practice, the two or three binary blobs needed to boot are written in advance --- call it ``install time'' --- to a persistent storage medium that the loader can read, as in Example \ref{cache}.
+%
+The format in which they are written depends on the loader, for example:
+%
+\begin{itemize}
+  \item 
+    (GRUB). The kernel and initramfs are made available to the loader by storing them both on some filesystem accessible thereto. In GRUB, this would be the value of the \texttt{\$root} variable.
+
+  \item
+    (U-Boot). The kernel, initramfs, and device tree blob are bundled together along with configuration into a unified binary ``FIT'' image.\footnote{\url{https://docs.u-boot.org/en/latest/usage/fit/source_file_format.html}}
+\end{itemize}
+%
+The path or paths to these data are then written, along with the textual metadata (i.e.~kernel command line), into bootloader configuration.
+
+Let us focus our attention now on the case of GRUB, and try to imagine how we might automate the process of identifying a suitable peripheral to use as the GRUB root.
+%
+A suitable peripheral consists of:
+\begin{itemize}
+  \item 
+    A physical attached device.
+    %
+    For the purposes of this example, we assume the device is an attached mass storage medium rather than an abstraction such as a network protocol.
+
+  \item
+    A GRUB driver for the attached device, either compiled into GRUB or in the form of a dynamically loaded GRUB module.
+
+  \item
+    A driver for the attached device available in the build environment, so that the data can be written there at build time.
+
+\end{itemize}
+%
+The build system must write the kernel and initramfs to such a device and incorporate the associated \texttt{grub\_root} and filesystem paths \texttt{kernel\_path} and \texttt{initramfs\_path} into GRUB's configuration.
+%
+These values can go either in the main configuration file \emph{grub.cfg} or into separate BLS configuration fragments.\footnote{\url{https://uapi-group.org/specifications/specs/boot\_loader\_specification/\#type-1-boot-loader-specification-entries}}
+%
+The location of the BLS fragments must then be built into \emph{grub.cfg}.\footnote{These configuration files do not necessarily reside on the same device as \texttt{grub\_root} --- indeed, in x86 Linux systems it is common for them to be located on a different partition.}
+
+Now we can expand the computation executed by GRUB, observing how it provides the leaves \texttt{kernel}, \texttt{initramfs}, \texttt{root}, \texttt{args}, of the fragment listed above and exposes its own leaves \texttt{bls\_path}, \texttt{grub\_root\_path} which must be provided by configuration, and storage state \texttt{storage\_s[1]} (cf.~Example \ref{cache}) which must be prepared by installation.
+%
+\begin{lstlisting}[name=grub]
+  # GRUB runtime
+  (Impl(Loader), get, GRUB),
+  (kernel, load_kernel, [grub_root_h, storage_s[1], kernel_path]),
+  (initramfs, load_initrd, 
+      [grub_root_h, storage_s[1], initramfs_path]),
+  (root, bls.root, [bls]),
+  (args, bls.args, [bls]),
+  (kernel_path, bls.kernel_path, [bls]),
+  (initramfs_path, bls.initramfs_path, [bls]),
+  (bls, load_bls, [grub_root_h, storage_s[1], bls_path]),
+  (grub_root_h, load_h, [grub_root_path, grub_root_driver]),
 ]
 \end{lstlisting}
-
-The leaves of the build are \texttt{loader}, \texttt{kernel}, \texttt{root}, and \texttt{args}. 
 %
-The \texttt{initramfs} target is computed a build time and cached on a boot medium.
-%
-The expanded computation is
-\begin{lstlisting}
-# Initramfs boot with requirements deduced from kernel commandline
-[
-  (init, apply, [loader, kernel, initramfs, root, args]),
-  (kernel, read, [boot_fs[1], kernel_path]),
-  (initramfs, read, [boot_fs[1], initramfs_path]),
-  (boot_fs[1], write, [initramfs, initramfs_path, boot_fs[0]]),
-  (initramfs, build, [kernel_modules, root]),
-]
-\end{lstlisting}
-%
-The runtime leaves \texttt{kernel\_path}, \texttt{initramfs\_path}, and \texttt{root}+\texttt{args} are exactly the data to be found in a typical Linux boot option configuration.\footnote{\url{https://uapi-group.org/specifications/specs/boot\_loader\_specification/\#type-1-boot-loader-specification-entries}}
-%
-We attach a counter to the handle \texttt{boot\_fs} to indicate that the write operation alters the state of the device to which it mediates access.
+We could go further and add new stages ``kernel build time'' and ``initramfs build time,'' expanding the compilation of the kernel and initramfs by deducing driver requirements imposed by the \texttt{root=} kernel argument.
 
 
 \subsubsection{Multi stage boot}
 
-In all but the simplest scenarios, boots need to go through several stages because the resources ne ed to fetch the operating system need codecs or drivers not available at the first stage.
-
-Typically, the full computation falls into several stages:
-\begin{enumerate}
-  \item \emph{Build.} Build and install platform firmware and bootloader.
-  \item \emph{Configure.} Build kernel, initramfs containing relevant rootfs drivers, and userspace, and configure kernel loading, including kernel command line.
-  \item \emph{Run.} Capture runtime user interaction and compute system initialization state.
-\end{enumerate}
+In all but the simplest scenarios, boots need to go through several stages because the resources needed to fetch the operating system need codecs or drivers not available at the first stage.
+%
+To illustrate the multiplicity of possibilities, we enumerate here some of the more common elements that may be used to construct a boot.
 
 \begin{enumerate}
   \item Booting a program that resides on a filesystem other than FAT; for example, \texttt{ext4} or \texttt{btrfs}. 
   %
-  The target \texttt{btrfs} is provided by either GRUB or Linux.
-  %
-  Similarly, the kernel is an ELF executable and not an EFI PE; this is also provided by GRUB or Linux. 
+  The target \texttt{btrfs} is provided by either GRUB or Linux, but is not part of the UEFI spec.
+  
+  \item Booting an ELF executable and not an EFI PE; provided by GRUB or Linux. 
   
   \item Boot a kernel that lives on an attached storage device whose filesystem may be any of a list of supported filesystems. 
   %
-  Which one it is is autodetected on startup (a dynamic dependency). 
+  The actual format is autodetected on startup (a dynamic dependency). 
   
-  \item Boot an image fetched from novel store (Swarm, IPFS, Arweave\ldots) that has been developed for a full OS, e.g.~Linux, BSD, MacOS, Windows. 
+  \item Boot a Linux image fetched from a novel storage backend such as Swarm, IPFS, or Arweave.
   %
-  Your dependency is that OS and an init process that launches the client for the novel protocol.
+  Software for the storage backend is available for Linux. 
+  %
+  In the context of \S\ref{linux-boot}, the client software can be listed as a ``driver'' for the initramfs build.
   
   \item 
-    You want to capture user input interactively --- a dynamic dependency.
+    Boot that waits to capture user input interactively (a dynamic dependency).
     %
+    Various models allow the user different levels of expressivity:
     \begin{itemize}
       \item Selection from several hardcoded boot options --- provided by UEFI.
       \item Selection from several boot options with an interactive editor to modify them. Dependency is \texttt{grub}.
-      \item Shell with various capabilities. Available UEFI, GRUB, Linux+initramfs\ldots{} 
+      \item Shell with various capabilities. Available in UEFI, GRUB, U-Boot, Linux initramfs\ldots{} 
     \end{itemize}
-    
-
-
 \end{enumerate}
+
+Network boots open up many more dimensions of configurability.
 
 \begin{example}[HTTP boot]
 
@@ -568,6 +647,7 @@ Typically, the full computation falls into several stages:
 
 \end{example}
 
+\newpage
 \section{Security} \label{security}
 
 How can we trust boots?
@@ -652,7 +732,7 @@ For instance:
   \item List of components used in the boot process.
   \item Boot computation specification in the sense of \S\ref{build}.
   \item Contract implemented between bootloader and payload.
-  \item Preservation of privilege level between boot stages.
+  \item Preservation of privilege level between boot stages, in cases where these are distinguished.
   \item Boot loader makes use of secure hardware services such as TPM.
 \end{itemize}
 
