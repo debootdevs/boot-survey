@@ -143,8 +143,11 @@ As well as providing essential input data for boot loaders to discover and initi
     The Devicetree specification provides an alternative data model and accompanying source and binary formats for informing bootloaders about hardware layout.\footnote{\url{https://www.devicetree.org/}}
 \end{itemize}
 
-Regarding reproducibility, the subject of \emph{reproducible builds} in software distribution has already received a fair amount of attention \cite{lamb:hal-03196519} (https://hal.science/hal-03196519/, https://reproducible-builds.org).
+Regarding reproducibility, the subject of \emph{reproducible builds} in software distribution has already received a fair amount of attention \cite{lamb:hal-03196519}.\footnote{\url{https://reproducible-builds.org}}
+%
+As for reproducibility of system state, the approach of \emph{measurements} in boot sequences is well established and widely implemented in standard hardware \cite{kinney2006trusted}.\footnote{\url{https://trustedcomputinggroup.org/}}
   
+\begin{comment}
 TODO
   The latter is clearly related in spirit to the idea of \emph{immutable infrastructure}.
   %
@@ -153,7 +156,7 @@ TODO
   If deployments from scratch are reproducible, then this system ensures that upgrades are reproducible too.
 
   But for a deployment to be reproducible, every stage of the deployment should also be reproducible; with a suitable system for caching intermediate states that remain invariant on an upgrade, reproducibility can be achieved without a phoenix server model.
-
+\end{comment}
 
 \section{Boots as builds} \label{build}
 
@@ -192,8 +195,7 @@ Expressed in a Python-like pseudocode, the data schema looks something like the 
 ]
 \end{lstlisting}
 
-In this picture, the task description would be a Python function and the labelled source and destination types are denoted by (typed) named variables.\footnote{This is purely illustrative and is certainly not supposed to
-suggest a bootloader implemented in Python!}
+In this picture, the task description would be a Python function and the labelled source and destination types are denoted by (typed) named variables.
 
 We express the same data more verbosely in a JSON format:
 
@@ -372,7 +374,7 @@ The targets of the associated build specification may be partitioned into connec
 
 \subsection{Boot sequences as build specifications}
 
-In the following examples, I use the Pythonic notation and explain the typing, for which there are often multiple reasonable approaches, and task descriptions in prose.
+In the following examples, we use the Pythonic notation and explain the typing, for which there are often multiple reasonable approaches, and task descriptions in prose.
 
 How can examples like these be applied in practice?
 %
@@ -664,16 +666,25 @@ A practical boot security framework would provide:
   \item Methods for evaluating risk.
   \item Methods for constrained optimization of risk.
 \end{itemize}
-For our nomenclature we should draw on the language of firmware and boot loader development practitioners \cite{yao2020building} as well as the models associated to the various information security frameworks in use across the industry \cite{taherdoost2022understanding}. 
+For our nomenclature we should draw on the language of firmware and boot loader development practitioners \cite{yao2020building} as well as models associated to the various information security frameworks in use across the industry \cite{taherdoost2022understanding}. 
+
+\begin{remark}
+  
+  The information security literature abounds with references to mnemonics such as the famous `CIA triad' of information security \emph{confidentiality, availability, integrity} or Microsoft's STRIDE threat model.
+  %
+  While these mnemonics can be useful for generating rules of thumb, they are generally not expressive enough to accurately model interesting security goals in a given context.
+
+\end{remark}
+
+\subsection{Building a risk model}
+
+In this section, we review standard approaches for formulating \emph{claims} made about software and linking them to trusted \emph{authorities}.
 %
-Here is a short list to get us started:
-\begin{itemize}
-  \item Security goals: Information security's famous `CIA triad' of \emph{confidentiality, availability, integrity}, and possible extensions, e.g.~\emph{authentication, non-repudiation}.
-  \item The STRIDE threat model. Attack trees.
-  \item Secure boot
-  \item TPM. Measurements.
-  \item Identity, a.k.a.~binding key material to an identifier or attribute . PKI \cite{rfc5280}, WoT.
-\end{itemize}
+We argue that these collectively form ways to build an `outsourced' risk model for initializing a computer system in a given context.
+%
+It is not always possible to verify the content of claims \emph{in situ}, but with proper infrastructure one can at least verify that the claim has been made, not repudiated, and bound to an authority with known attributes.
+%
+Given a set of desired properties, risk can then be controlled in a running system by validating claims and disabling specific functionality --- for example, refusing to boot --- in the event of validation failure.
 
 \paragraph{Outsourcing trust}
 Some types of security objectives can be efficiently verified by client systems on-the-fly.
@@ -694,9 +705,10 @@ Hence, to outsource our risk model to a set of claims made by other trusted enti
   \item A certification system that binds credentials, such as a public key, with identifying attributes.
   \item A set of authentication methods and accompanying credentials for verifying this binding. 
 \end{itemize}
-The third item is the subject of authentication methods. See DIDs.
 %
-The other items form part of what is, in the context of public-private key cryptography, called a \emph{public key infrastructure} \cite{rfc5280}.
+Certification and authentication systems can be online or offline.
+%
+If offline, certificates may ship with an expiry date, and the system may also provide for a highly available \emph{revocation database} that security-conscious systems should query as part of the authentication process.
 
 Examples of such systems:
 \begin{itemize}
@@ -704,16 +716,29 @@ Examples of such systems:
     Probably the most widespread system in use is the Internet public key infrastructure (PKI) based on X.509 certificates \cite{rfc5280}.
     %
     The process for binding entities to their identities is described by a CA's \emph{Certification Practice Statement} (CPS).
-  \item 
-    JWT \cite{rfc7519} provides an authenticated scheme to bind attributes, called \emph{claims} in this context, to keys (certification). IANA maintains a list of claims.\footnote{\url{https://www.iana.org/assignments/jwt/jwt.xhtml}}
-  \item
-    Decentralized identifiers (DIDs) provide a way to communicate and validate authentication material.
-\end{itemize}
-See also \cite{gerck1997overview}.
+    %
+    PKI and its relation to other classical certification methods such as PGP's web of trust (WoT) model are discussed in \cite{gerck1997overview}.
+    %
+    PKI provides for revocation either through certificate revocation lists (CRLs) as introduced in RFC-5280, the newer Online Certificate Status Protocol (OCSP), or browser-specific solutions \cite{crlsets}.
 
-\paragraph{Claims about artefacts} Given this, we then need a common language and taxonomy for claims that entities can make about the artefacts.
+  \item 
+    JSON web tokens \cite{rfc7519} provides an authenticated scheme to bind attributes, called \emph{claims} in this context, to keys (certification). 
+    %
+    IANA maintains a list of recognized claim schemata.\footnote{\url{https://www.iana.org/assignments/jwt/jwt.xhtml}}
+
+  \item
+    Decentralized identifiers (DIDs) provide a way to communicate and validate authentication material.\footnote{\url{https://www.w3.org/TR/did-core/}}
+    %
+    The handling of certification and name binding tasks is left up to the individual DID methods.
+
+\end{itemize}
 %
-The SCITT working group is working on this.\footnote{\url{https://datatracker.ietf.org/wg/scitt/about/}}
+In recent years there is also substantial interest in using the highly available timestamping properties of blockchains to provide name-binding or PKI services \cite{eip137,tomsguide2023proton}.
+
+
+\paragraph{Claims about artefacts} Given an adequate system for identifying the creators of claims, we need a common language and taxonomy for the content of the claims.
+%
+We recommend adoption of the language of the SCITT working group \cite{ietf-scitt-architecture-04}.\footnote{\url{https://datatracker.ietf.org/wg/scitt/about/}}
 
 Here are some examples of claims about generic software distributions:
 \begin{itemize}
@@ -724,6 +749,8 @@ Here are some examples of claims about generic software distributions:
   \item Claims of concrete security guarantees in a given context and threat model.
 \end{itemize}
 %
+Further examples can be found in the use cases report of the SCITT WG \cite{ietf-scitt-software-use-cases-02}.
+
 More relevant to the present paper, we may wish to claim that an operating system distribution image is bootable via a stated boot process, or a boot process with certain properties.
 %
 For instance:
@@ -735,76 +762,141 @@ For instance:
   \item Preservation of privilege level between boot stages, in cases where these are distinguished.
   \item Boot loader makes use of secure hardware services such as TPM.
 \end{itemize}
+%
 
 
-\subsection{Integrity/tampering boot security problem}
+\subsection{Example: integrity/tampering boot security problem}
 
-In this section we focus on \emph{integrity,} the most widely
-appreciated security goal of a boot flow.
+The most widely discussed security goal of a boot sequence is the \emph{integrity} of boot images as measured against a commitment made by a trusted authority or the operator himself.
 
-In the boot as computation ``graph'' model described in this article, a
-generic security problem runs as follows:
+\begin{example}[U-Boot standard boot]
 
-\emph{Context.} A user wants to compute a target \(t\) of a build \(B\)
-in several stages \(S_1,\ldots,S_n\). At each stage, some inputs are
-consumed and some intermediate targets \(t'\) are computed.
+  \emph{Context.} An ARM SoC with (trusted) U-Boot firmware is booting a FIT
+  image,\footnote{\url{https://u-boot.readthedocs.io/en/latest/usage/fit/source_file_format.html}} comprising a kernel, initramfs, device tree blob, and kernel commandline.
+  %
+  The image is written to an SD card by the operator (cf.~Example \ref{cache}).
 
-\emph{Adversary.} Between each stage, the (tampering) adversary may
-modify the value of the intermediate targets \(t'\).
+  \emph{Adversary.} May modify the contents of the SD card after the user writes it but before booting.
 
-\emph{Security goal.} The result of the computation is either the true
-value of \(t\) or \(\bot\), indicating failure.
+  \emph{Security goal.} Either the specified FIT image is booted, or the boot fails and the system halts.
 
 
-\subsection{Some examples}
+  In terms of build specifications, the invariant being verified here is the equality of the installed image and the retrieved image.
+  %
+  In the notation of Example \ref{cache}, we are ensuring \texttt{blob==blob\_} in the presence of an adversary that can modify the post-installation storage state \texttt{storage\_s[1]}.
 
-\paragraph{U-Boot standard boot}
+  For more practical information on this example, see \cite{timesys2023securing}.
 
-\emph{Context.} An ARM SoC with (trusted) U-Boot firmware is booting a FIT
-image,\footnote{\url{https://u-boot.readthedocs.io/en/latest/usage/fit/source_file_format.html}} comprising a kernel, initramfs, device tree blob, and kernel
-commandline, which is written by the operator to an SD card.
-
-\emph{Adversary.} May modify the contents of the SD card after the user writes it but before booting.
-
-\emph{Security goal.} Either the specified FIT image is booted, or the boot fails and the system halts.
+\end{example}
 
 
-In terms of build specifications, the problem that is being solved here is the integrity of the boot computation given a cache expansion
-\begin{verbatim}
-[
-  (mmc.data, save, [img.data.0, path]),
-  (img.data.1, load, [mmc.data, path])
-]
-\end{verbatim}
-where the adversary may modify the cached value \texttt{mmc.data}, even if it would break the invariant $\mathtt{img.data.0} = \mathtt{img.data.1}$.
+\begin{example}[Traditional package management] \label{package-management}
 
-For more practical information on this topic, see \cite{timesys2023securing}.
+  A typical package management scenario is that a user wishes to download and install a software release associated with a particular project name.
 
-\hypertarget{traditional-package-management}{%
-\paragraph{Traditional package
-management}\label{traditional-package-management}}
+\emph{Context.} A user retrieves a software distribution package from a remote repository.
 
-\emph{Context.} A user downloads and install a program from a remote
-repository.
+\emph{Adversary.} May modify data in transit and at rest on the remote repository. May impersonate the remote repository at the IP level.
 
-\emph{Adversary.} May modify data in transit and at rest on the remote
-repository.
+\emph{Security goal.} The retrieved package is the desired official release of the named project.
 
-\emph{Security goal.} The installed package is the subject of a claim of
-authorship by an entity possessing an given public key \(\mathtt{pk}\).
+Abstractly, the risks associated with this security goal can be controlled as follows:
+\begin{enumerate}
+  \item 
+    An identity service is used to bind the project name to an authentication method $x$ (for example, issuing a DID).
+  \item 
+    At the social layer, a claim format is agreed upon that specifies
+    \begin{itemize}
+      \item A commitment to a package artefact.
+      \item A release number.
+    \end{itemize}
+    An $x$-authenticated claim in this format is considered to vouch that the artefact to which the claim commits is the stated release of the named project.
+  \item 
+    Upon retrieval, the client establishes a trust relationship with the identity provider, verifies the authentication data, and measures the retrieved artefact against the authenticated commitment.
+    %
+    If any of these three validation stages fails, the retrieval fails and emits an explanatory log message.
 
-\begin{itemize}
-\tightlist
-\item
-  In widely used package repositories, a package is accompanied by a checksum or hash and a signature of that checksum (in ASCII-armored PEM format).
-\item
-  The signature may be accompanied by a field indicating the claim associated to the signature in a commonly understood format, for example, the OpenPGP Signature Type byte 0x00 \cite[\S5.2.1]{rfc4880}.\footnote{\url{https://www.rfc-editor.org/rfc/rfc4880.html\#section-5.2.1}}
-\item
-  The trust of the signing key can be derived from that of the root
-  certificate of a TLS certificate chain, for example, those of the DNS
-  domain from which the key is fetched. This could be the domain hosting
-  the repository itself or a domain known to be owned by the software
-  author or other trusted authority.
-\end{itemize}
+  \end{enumerate}
+  Concretely these checks are implemented with some standard technologies.
+  \begin{enumerate}
+  \item
+    In widely used package repositories, a package is accompanied by a commitment in the form of a checksum or hash (e.g.~SHA256), and a PGP signature of that commitment.
+    %
+    The signing public key can be attached to an identity service in various ways, for example by registration on a PGP keyserver or by association with a TLS certificate.
+
+  \item
+    The claim format is defined as an OpenPGP message with Signature Type byte $0x00$ \cite[\S5.2.1]{rfc4880} which provides for an interpretation where the signer is the `author' or `owner' of the signed artefact.\footnote{\url{https://www.rfc-editor.org/rfc/rfc4880.html\#section-5.2.1}}
+
+  \item
+    Suppose that the signing key has been associated with an identity using an X.509 certificate (for example, by using the same keypair to sign the certificate request, or by publishing the public key on an appropriately website served with HTTPS).
+    %
+    Trust in this identity is then derived from validating a certificate chain leading to a trusted root certificate authority (CA), whose certificates are installed in advance to form a trust anchor.
+
+    The user wishing to have the highest possible `liveness' guarantees for the identity verification must connect to an online service to check certificate revocation status.
+
+  \end{enumerate}
+
+\end{example}
+
+\begin{example}[Secure boot]
+
+  Microsoft's Secure Boot technology is based on essentially the same model as Example \ref{package-management}.\footnote{\url{https://uefi.org/specs/UEFI/2.10/32_Secure_Boot_and_Driver_Signing.html\#firmware-os-key-exchange-creating-trust-relationships}}
+  %
+  Thus the user wishes to boot a system whose boot image and hardware devices, as viewed from the context of UEFI firmware, are subject to `approval' by the authority of the platform owner.
+  %
+  The platform owner's identity is bound to a \emph{platform key} by the fact of its enrolment in platform firmware, and its authority can be delegated by the enrolment of additional \emph{key exchange keys}.
+
+  The `approval' claim for an EFI executable image is encoded as an X.509 certificate appended to the end of the image.
+  %
+  Trust in the `identity' of keys enrolled in the platform firmware is implicit in the use of the platform.
+
+  This system has a number of limitations:
+  \begin{itemize}
+    \item
+      The lack of a flexible identity service makes it difficult for users to take control of their boot environment by registering their own authentication material to vouch for boot programs.
+      %
+      Instead, one must derive trust in practice from keypairs owned by Microsoft.\footnote{https://www.rodsbooks.com/efi-bootloaders/secureboot.html}
+
+    \item 
+      Because the system cannot necessarily be expected to connect to the Internet at a very early stage in the boot sequence, identity and claim revocation status must be stored directly in firmware configuration.
+      %
+      Since firmware configuration must usually reside in an extremely constrained storage component, this leads to some difficulties not visible at the OS level.\footnote{\url{https://github.com/rhboot/shim/blob/main/SBAT.md}}
+    
+    \item
+      The scope of secure boot is limited to measured device driver loading and handoff between platform firmware and an EFI application.
+      %
+      It cannot make claims about the loading of platform firmware itself, or about the subsequent payload of the bootloader.
+      
+  \end{itemize}
+\end{example}
+
+\begin{example}[Abstract integrity check]
+
+  In the data model outlined in \S\ref{build}, a generic integrity problem can be expressed as follows:
+  
+  \emph{Context.} A user wants to compute a target \(t\) of a build \(B\) in several stages \(S_1,\ldots,S_n\). At each stage, some inputs are consumed and some intermediate targets \(t'\) are computed.
+  
+  \emph{Adversary.} Between each stage, the (tampering) adversary may modify the value of the intermediate targets \(t'\).
+  
+  \emph{Security goal.} The result of the computation is either the true value of \(t\) or \(\bot\), indicating failure.
+
+  The probability of achieving the security goal can be increased by storing and retrieving succinct commitments to the intermediate values whose integrity may be compromised.
+
+\end{example}
+
+
+\section{Conclusion}
+
+We have described a powerful and flexible declarative language in which the various early initialization stages for physical machines can be couched, even when few logical abstractions are available.
+%
+When fully developed, this type of approach can facilitate both innovation in boot sequence design, by empowering developers, and security risk modelling, by defining explicit components which are prone to analogy and generalization and about which security claims can be made.
+%
+Future work should pursue actual implementation of automated boot sequence solutions following the declarative paradigm, and discover commonalities between security contexts and relate them to boot definition structure.
+
+The security considerations discussed here mostly apply to all software distribution patterns, and not only to bare metal machine initialization.
+%
+We advocate for community initiatives to encourage developers to make more precise claims about their software artefacts, study the effect of composing security claims, and provide highly available and timestamped infrastructure to register them.
+%
+% and to improve community understanding of the guarantees provided by different identity services --- namely, name-binding, certification, and authentication.
 
 \printbibliography
